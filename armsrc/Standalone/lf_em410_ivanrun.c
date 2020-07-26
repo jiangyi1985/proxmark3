@@ -125,7 +125,7 @@ void RunMod(void) {
     bba = BigBuf_get_addr();
 
     // Dbprintf("[=] state --> %i, low --> %02x%08x", state, (uint32_t)(low>>32),(uint32_t)low);
-    
+    Dbprintf("[=] state --> %i", state);
     led_state(state);
 
     for (;;) {
@@ -172,11 +172,10 @@ void RunMod(void) {
                 // Read mode
                 //is_reading = true;
                 lf_em410x_watch(1, &high, &low);
-                Dbprintf("[=] watch completed. state --> %i, low --> %02x%08x", state, (uint32_t)(low>>32), (uint32_t)low);
+                Dbprintf("[=] read stopped. state --> %i, low --> %02x%08x", state, (uint32_t)(low>>32), (uint32_t)low);
                 
 #ifdef WITH_FLASH
-                if(low != 0)
-                {
+                if(low != 0) {
                     SaveIDtoFlash(0, low);
                 }
 #endif
@@ -194,10 +193,10 @@ void RunMod(void) {
                 // Simulate mode
 
                 //go back to read mode if there's no tag id
-                if(low == 0)
-                {
+                if(low == 0) {
                     state = 0;
                     Dbprintf("[=] state --> %i", state);
+                    led_state(state);
                     break;
                 }
 
@@ -220,6 +219,6 @@ void RunMod(void) {
         }
     }
 
-    DbpString("[=] exiting ivanrun");
+    DbpString("[=] exiting lf_em410_ivanrun");
     LEDsoff();
 }
