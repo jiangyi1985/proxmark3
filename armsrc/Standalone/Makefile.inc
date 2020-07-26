@@ -41,6 +41,10 @@ endif
 ifneq (,$(findstring WITH_STANDALONE_LF_ICEHID,$(APP_CFLAGS)))
     SRC_STANDALONE = lf_icehid.c
 endif
+# WITH_STANDALONE_LF_EM410_IVANRUN
+ifneq (,$(findstring WITH_STANDALONE_LF_EM410_IVANRUN,$(APP_CFLAGS)))
+    SRC_STANDALONE = lf_em410_ivanrun.c
+endif
 # WITH_STANDALONE_LF_EM4100EMUL
 ifneq (,$(findstring WITH_STANDALONE_LF_EM4100EMUL,$(APP_CFLAGS)))
     SRC_STANDALONE = lf_em4100emul.c
