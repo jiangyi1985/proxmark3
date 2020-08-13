@@ -20,9 +20,9 @@
 //
 //
 //          To recall stored ID from flash execute:
-//              mem spifss dump o emdump p
+//              mem spiffs dump o emdump p
 //          Or:
-//              mem spifss dump o emdump f emdump
+//              mem spiffs dump o emdump f emdump
 //              Then from shell:
 //                  hexdump emdump -e '5/1 "%02X" /0 "\n"'
 //-----------------------------------------------------------------------------
