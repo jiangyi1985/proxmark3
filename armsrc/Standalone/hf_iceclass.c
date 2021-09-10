@@ -45,9 +45,9 @@
 // Select which standalone function to be active.
 // 5 possiblities.  Uncomment the one you wanna use.
 
-#define ICE_USE               ICE_STATE_FULLSIM
+//#define ICE_USE               ICE_STATE_FULLSIM
 //#define ICE_USE               ICE_STATE_ATTACK
-//#define ICE_USE               ICE_STATE_READER
+#define ICE_USE               ICE_STATE_READER
 //#define ICE_USE               ICE_STATE_CONFIGCARD
 //#define ICE_USE               ICE_STATE_DUMP_SIM
 
@@ -103,7 +103,8 @@ uint8_t card_app2_limit[] = {
 };
 
 static uint8_t aa2_key[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-static uint8_t legacy_aa1_key[] = {0xAE, 0xA6, 0x84, 0xA6, 0xDA, 0xB2, 0x32, 0x78};
+//static uint8_t legacy_aa1_key[] = {0xAE, 0xA6, 0x84, 0xA6, 0xDA, 0xB2, 0x32, 0x78};
+static uint8_t legacy_aa1_key[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 static bool have_aa2(void) {
     return memcmp(aa2_key, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF", 8);
@@ -448,7 +449,7 @@ static int dump_sim_mode(void) {
         // setup authenticate AA1
         iclass_auth_req_t auth = {
             .use_raw = false,
-            .use_elite = false,
+            .use_elite = true,
             .use_credit_key = false,
             .do_auth = true,
             .send_reply = false,
