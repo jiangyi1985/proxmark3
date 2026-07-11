@@ -1,9 +1,17 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2009 Michael Gernoth <michael at gernoth.net>
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // GUI (QT)
 //-----------------------------------------------------------------------------
@@ -21,7 +29,10 @@
 #include <QPainter>
 #include <QtGui>
 
+#include "proxgui.h"
+#include "graph.h"
 #include "ui/ui_overlays.h"
+#include "ui/ui_image.h"
 
 class ProxWidget;
 
@@ -29,30 +40,45 @@ class ProxWidget;
  * @brief The actual plot, black area were we paint the graph
  */
 class Plot: public QWidget {
+    Q_OBJECT; //needed for slot/signal classes
+
   private:
     QWidget *master;
-    uint32_t GraphStart; // Starting point/offset for the left side of the graph
-    double GraphPixelsPerPoint; // How many visual pixels are between each sample point (x axis)
-    uint32_t CursorAPos;
-    uint32_t CursorBPos;
+    double g_GraphPixelsPerPoint; // How many visual pixels are between each sample point (x axis)
     void PlotGraph(int *buffer, size_t len, QRect plotRect, QRect annotationRect, QPainter *painter, int graphNum);
     void PlotDemod(uint8_t *buffer, size_t len, QRect plotRect, QRect annotationRect, QPainter *painter, int graphNum, uint32_t plotOffset);
     void plotGridLines(QPainter *painter, QRect r);
+    void plotOperations(int *buffer, size_t len, QPainter *painter, QRect rect);
+    void drawAnnotations(QRect annotationRect, QPainter *painter);
+    void draw_marker(marker_t marker, QRect plotRect, QColor color, QPainter *painter);
     int xCoordOf(int i, QRect r);
     int yCoordOf(int v, QRect r, int maxVal);
     int valueOf_yCoord(int y, QRect r, int maxVal);
     void setMaxAndStart(int *buffer, size_t len, QRect plotRect);
+    void appendMax(int *buffer, size_t len, QRect plotRect);
     QColor getColor(int graphNum);
 
   public:
     Plot(QWidget *parent = 0);
 
+  public slots:
+    void Zoom(double factor, uint32_t refX);
+    void MoveTo(uint32_t pos);
+    void MoveTo(int pos);
+    void Move(int offset);
+
   protected:
     void paintEvent(QPaintEvent *event);
     void closeEvent(QCloseEvent *event);
+    void Trim(void);
+    void wheelEvent(QWheelEvent *event);
     void mouseMoveEvent(QMouseEvent *event);
     void mousePressEvent(QMouseEvent *event) { mouseMoveEvent(event); }
     void keyPressEvent(QKeyEvent *event);
+
+  signals:
+    void startMaxChanged(uint32_t startMax);
+    void graphStartChanged(uint32_t graphStart);
 };
 class ProxGuiQT;
 
@@ -63,6 +89,14 @@ class SliderWidget : public QWidget {
     void moveEvent(QMoveEvent *event);
   public:
     SliderWidget();
+};
+
+// Added class for SliderWidget to allow move/resize event override
+class PictureWidget : public QWidget {
+  protected:
+    void closeEvent(QCloseEvent *event);
+  public:
+    PictureWidget();
 };
 
 /**
@@ -76,8 +110,9 @@ class ProxWidget : public QWidget {
     ProxGuiQT *master;
     Plot *plot;
     Ui::Form *opsController;
-//    QWidget *controlWidget;
     SliderWidget *controlWidget;
+    QSlider *navSlider;
+
   public:
     ProxWidget(QWidget *parent = 0, ProxGuiQT *master = NULL);
     ~ProxWidget(void);
@@ -100,6 +135,7 @@ class ProxWidget : public QWidget {
     void vchange_askedge(int v);
     void vchange_dthr_up(int v);
     void vchange_dthr_down(int v);
+    void updateNavSlider(void);
 };
 
 class WorkerThread : public QThread {
@@ -120,6 +156,9 @@ class ProxGuiQT : public QObject {
   private:
     QApplication *plotapp;
     ProxWidget *plotwidget;
+    Ui::PictureForm *pictureController;
+    PictureWidget *pictureWidget;
+
     int argc;
     char **argv;
     //void (*main_func)(void);
@@ -131,6 +170,13 @@ class ProxGuiQT : public QObject {
     void ShowGraphWindow(void);
     void RepaintGraphWindow(void);
     void HideGraphWindow(void);
+
+    // hook up picture viewer
+    void ShowPictureWindow(const QImage &img);
+    void ShowBase64PictureWindow(char *b64);
+    void HidePictureWindow(void);
+    void RepaintPictureWindow(void);
+
     void MainLoop(void);
     void Exit(void);
 
@@ -138,6 +184,13 @@ class ProxGuiQT : public QObject {
     void _ShowGraphWindow(void);
     void _RepaintGraphWindow(void);
     void _HideGraphWindow(void);
+
+    // hook up picture viewer
+    void _ShowPictureWindow(const QImage &img);
+    void _ShowBase64PictureWindow(char *b64);
+    void _HidePictureWindow(void);
+    void _RepaintPictureWindow(void);
+
     void _Exit(void);
     void _StartProxmarkThread(void);
 
@@ -146,6 +199,12 @@ class ProxGuiQT : public QObject {
     void RepaintGraphWindowSignal(void);
     void HideGraphWindowSignal(void);
     void ExitSignal(void);
+
+    // hook up picture viewer signals
+    void ShowPictureWindowSignal(const QImage &img);
+    void ShowBase64PictureWindowSignal(char *b64);
+    void HidePictureWindowSignal(void);
+    void RepaintPictureWindowSignal(void);
 };
 
 #endif // PROXGUI_QT

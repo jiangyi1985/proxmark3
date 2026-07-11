@@ -1,17 +1,26 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2010 iZsh <izsh at fail0verflow.com>
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Low frequency TI commands
 //-----------------------------------------------------------------------------
 
+#include "cmdlfti.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>       // strncpy
 #include <inttypes.h>
-
 #include "cmdparser.h"    // command_t
 #include "commonutil.h"
 #include "comms.h"
@@ -19,12 +28,12 @@
 #include "ui.h"
 #include "proxgui.h"
 #include "graph.h"
-#include "cmdlfti.h"
+#include "cliparser.h"
 
 static int CmdHelp(const char *Cmd);
 
-static int CmdTIDemod(const char *Cmd) {
-    (void)Cmd; // Cmd is not used so far
+int demodTI(bool verbose) {
+    (void) verbose; // unused so far
     /* MATLAB as follows:
       f_s = 2000000;  % sampling frequency
       f_l = 123200;   % low FSK tone
@@ -80,7 +89,8 @@ static int CmdTIDemod(const char *Cmd) {
         1, 1, 1, 1, 1, 1, 1, 1
     };
 
-    save_restoreGB(GRAPH_SAVE);
+    buffer_savestate_t saveState = save_bufferS32(g_GraphBuffer, g_GraphTraceLen);
+    saveState.offset = g_GridOffset;
 
     int lowLen = ARRAYLEN(LowTone);
     int highLen = ARRAYLEN(HighTone);
@@ -90,38 +100,41 @@ static int CmdTIDemod(const char *Cmd) {
     int lowTot = 0, highTot = 0;
     int retval = PM3_ESOFT;
 
-    for (i = 0; i < GraphTraceLen - convLen; i++) {
+    if (g_GraphTraceLen < convLen) {
+        return retval;
+    }
+    for (i = 0; i < g_GraphTraceLen - convLen; i++) {
         lowSum = 0;
         highSum = 0;
 
         for (j = 0; j < lowLen; j++) {
-            lowSum += LowTone[j] * GraphBuffer[i + j];
+            lowSum += LowTone[j] * g_GraphBuffer[i + j];
         }
         for (j = 0; j < highLen; j++) {
-            highSum += HighTone[j] * GraphBuffer[i + j];
+            highSum += HighTone[j] * g_GraphBuffer[i + j];
         }
         lowSum = abs((100 * lowSum) / lowLen);
         highSum = abs((100 * highSum) / highLen);
         lowSum = (lowSum < 0) ? -lowSum : lowSum;
         highSum = (highSum < 0) ? -highSum : highSum;
 
-        GraphBuffer[i] = (highSum << 16) | lowSum;
+        g_GraphBuffer[i] = (highSum << 16) | lowSum;
     }
 
-    for (i = 0; i < GraphTraceLen - convLen - 16; i++) {
+    for (i = 0; i < g_GraphTraceLen - convLen - 16; i++) {
         lowTot = 0;
         highTot = 0;
         // 16 and 15 are f_s divided by f_l and f_h, rounded
         for (j = 0; j < 16; j++) {
-            lowTot += (GraphBuffer[i + j] & 0xffff);
+            lowTot += (g_GraphBuffer[i + j] & 0xffff);
         }
         for (j = 0; j < 15; j++) {
-            highTot += (GraphBuffer[i + j] >> 16);
+            highTot += (g_GraphBuffer[i + j] >> 16);
         }
-        GraphBuffer[i] = lowTot - highTot;
+        g_GraphBuffer[i] = lowTot - highTot;
     }
 
-    GraphTraceLen -= (convLen + 16);
+    g_GraphTraceLen -= (convLen + 16);
 
     RepaintGraphWindow();
 
@@ -143,11 +156,11 @@ static int CmdTIDemod(const char *Cmd) {
         int dec = 0;
         // searching 17 consecutive lows
         for (j = 0; j < 17 * lowLen; j++) {
-            dec -= GraphBuffer[i + j];
+            dec -= g_GraphBuffer[i + j];
         }
         // searching 7 consecutive highs
         for (; j < 17 * lowLen + 6 * highLen; j++) {
-            dec += GraphBuffer[i + j];
+            dec += g_GraphBuffer[i + j];
         }
         if (dec > max) {
             max = dec;
@@ -157,8 +170,8 @@ static int CmdTIDemod(const char *Cmd) {
 
     // place a marker in the buffer to visually aid location
     // of the start of sync
-    GraphBuffer[maxPos] = 800;
-    GraphBuffer[maxPos + 1] = -800;
+    g_MarkerC.pos = maxPos;
+    strcpy(g_MarkerC.label, "Sync Start");
 
     // advance pointer to start of actual data stream (after 16 pre and 8 start bits)
     maxPos += 17 * lowLen;
@@ -166,8 +179,8 @@ static int CmdTIDemod(const char *Cmd) {
 
     // place a marker in the buffer to visually aid location
     // of the end of sync
-    GraphBuffer[maxPos] = 800;
-    GraphBuffer[maxPos + 1] = -800;
+    g_MarkerD.pos = maxPos;
+    strcpy(g_MarkerD.label, "Sync End");
 
     PrintAndLogEx(DEBUG, "actual data bits start at sample %d", maxPos);
     PrintAndLogEx(DEBUG, "length %d/%d", highLen, lowLen);
@@ -180,10 +193,10 @@ static int CmdTIDemod(const char *Cmd) {
     for (i = 0; i < ARRAYLEN(bits) - 1; i++) {
         int high = 0, low = 0;
         for (j = 0; j < lowLen; j++) {
-            low -= GraphBuffer[maxPos + j];
+            low -= g_GraphBuffer[maxPos + j];
         }
         for (j = 0; j < highLen; j++) {
-            high += GraphBuffer[maxPos + j];
+            high += g_GraphBuffer[maxPos + j];
         }
 
         if (high > low) {
@@ -203,8 +216,7 @@ static int CmdTIDemod(const char *Cmd) {
         shift3 >>= 1;
 
         // place a marker in the buffer between bits to visually aid location
-        GraphBuffer[maxPos] = 800;
-        GraphBuffer[maxPos + 1] = -800;
+        add_temporary_marker(maxPos, "");
     }
 
     RepaintGraphWindow();
@@ -253,7 +265,7 @@ static int CmdTIDemod(const char *Cmd) {
         init_table(CRC_KERMIT);
         uint16_t calccrc = crc16_kermit(raw, sizeof(raw));
         const char *crc_str = (calccrc == (shift2 & 0xFFFF)) ? _GREEN_("ok") : _RED_("fail");
-        PrintAndLogEx(INFO, "Tag data = %08X%08X  [%04X] (%s)", shift1, shift0, calccrc, crc_str);
+        PrintAndLogEx(INFO, "Tag data = %08X%08X  [%04X] ( %s )", shift1, shift0, calccrc, crc_str);
 
         if (calccrc != (shift2 & 0xFFFF))
             PrintAndLogEx(WARNING, "Warning: CRC mismatch, calculated %04X, got %04X", calccrc, shift2 & 0xFFFF);
@@ -265,45 +277,108 @@ static int CmdTIDemod(const char *Cmd) {
     }
 
 out:
-    if (retval != PM3_SUCCESS)
-        save_restoreGB(GRAPH_RESTORE);
+    if (retval != PM3_SUCCESS) {
+        restore_bufferS32(saveState, g_GraphBuffer);
+        g_GridOffset = saveState.offset;
+    }
 
     return retval;
 }
 
+static int CmdTIDemod(const char *Cmd) {
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "lf ti demod",
+                  "Try to find TI preamble, if found decode / descramble data",
+                  "lf ti demod"
+                 );
+
+    void *argtable[] = {
+        arg_param_begin,
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, true);
+    CLIParserFree(ctx);
+    return demodTI(true);
+}
+
 // read a TI tag and return its ID
-static int CmdTIRead(const char *Cmd) {
-    (void)Cmd; // Cmd is not used so far
-    clearCommandBuffer();
-    SendCommandNG(CMD_LF_TI_READ, NULL, 0);
+static int CmdTIReader(const char *Cmd) {
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "lf ti reader",
+                  "read a TI tag",
+                  "lf ti reader -@   -> continuous reader mode"
+                 );
+
+    void *argtable[] = {
+        arg_param_begin,
+        arg_lit0("@", NULL, "optional - continuous reader mode"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, true);
+    bool cm = arg_get_lit(ctx, 1);
+    CLIParserFree(ctx);
+
+    if (cm) {
+        PrintAndLogEx(INFO, "Press " _GREEN_("<Enter>") " to exit");
+    }
+
+    do {
+        clearCommandBuffer();
+        SendCommandNG(CMD_LF_TI_READ, NULL, 0);
+    } while (cm && !kbd_enter_pressed());
+
     return PM3_SUCCESS;
 }
 
 // write new data to a r/w TI tag
 static int CmdTIWrite(const char *Cmd) {
-    int res = 0;
-    uint64_t arg0, arg1, arg2;
-    res = sscanf(Cmd, "%012" SCNx64 " %012" SCNx64 " %012" SCNx64 "", &arg0, &arg1, &arg2);
 
-    if (res == 2)
-        arg2 = 0;
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "lf ti write",
+                  "write to a r/w TI tag.",
+                  "lf ti write --raw 1122334455667788\n"
+                  "lf ti write --raw 1122334455667788 --crc 1122\n"
+                 );
 
-    if (res < 2) {
-        PrintAndLogEx(WARNING, "Please specify the data as two hex strings, optionally the CRC as a third");
-        return PM3_EINVARG;
-    }
+    void *argtable[] = {
+        arg_param_begin,
+        arg_str1("r", "raw", "<hex>", "raw hex data. 8 bytes max"),
+        arg_str0(NULL, "crc", "<hex>", "optional - crc"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, false);
+
+    int raw_len = 0;
+    uint8_t raw[8] = {0};
+    CLIGetHexWithReturn(ctx, 1, raw, &raw_len);
+
+    int crc_len = 0;
+    uint8_t crc[2] = {0};
+    CLIGetHexWithReturn(ctx, 2, crc, &crc_len);
+    CLIParserFree(ctx);
+
+    struct {
+        uint32_t high;
+        uint32_t low;
+        uint16_t crc;
+    } PACKED payload;
+
+    payload.high = bytes_to_num(raw, 4);
+    payload.low = bytes_to_num(raw + 4, 4);
+    payload.crc = bytes_to_num(crc, crc_len);
+
     clearCommandBuffer();
-    SendCommandMIX(CMD_LF_TI_WRITE, arg0, arg1, arg2, NULL, 0);
+    SendCommandNG(CMD_LF_TI_WRITE, (uint8_t *)&payload, sizeof(payload));
     PrintAndLogEx(SUCCESS, "Done");
-    PrintAndLogEx(HINT, "Hint: try " _YELLOW_("`lf ti read`") " to verify");
+    PrintAndLogEx(HINT, "Hint: try " _YELLOW_("`lf ti reader`") " to verify");
     return PM3_SUCCESS;
 }
 
 static command_t CommandTable[] = {
-    {"help",      CmdHelp,        AlwaysAvailable, "This help"},
-    {"demod",     CmdTIDemod,     AlwaysAvailable, "Demodulate raw bits for TI-type LF tag from the GraphBuffer"},
-    {"read",      CmdTIRead,      IfPm3Lf,         "Read and decode a TI 134 kHz tag"},
-    {"write",     CmdTIWrite,     IfPm3Lf,         "Write new data to a r/w TI 134 kHz tag"},
+    {"help",    CmdHelp,      AlwaysAvailable, "This help"},
+    {"demod",   CmdTIDemod,   AlwaysAvailable, "Demodulate raw bits for TI LF tag from the GraphBuffer"},
+    {"reader",  CmdTIReader,  IfPm3Lf,         "Read and decode a TI 134 kHz tag"},
+    {"write",   CmdTIWrite,   IfPm3Lf,         "Write new data to a r/w TI 134 kHz tag"},
     {NULL, NULL, NULL, NULL}
 };
 
@@ -317,8 +392,3 @@ int CmdLFTI(const char *Cmd) {
     clearCommandBuffer();
     return CmdsParse(CommandTable, Cmd);
 }
-
-int demodTI(void) {
-    return CmdTIDemod("");
-}
-

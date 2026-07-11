@@ -1,22 +1,20 @@
-/*-
- * Copyright (C) 2010, Romain Tartiere.
- *
- * This program is free software: you can redistribute it and/or modify it
- * under the terms of the GNU Lesser General Public License as published by the
- * Free Software Foundation, either version 3 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
- *
- * $Id$
- */
-
+//-----------------------------------------------------------------------------
+// Borrowed initially from https://github.com/nfc-tools/libfreefare
+// Copyright (C) 2010, Romain Tartiere.
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
 /*
  * This implementation was written based on information provided by the
  * following documents:
@@ -69,8 +67,10 @@ void des_decrypt(void *out, const void *in, const void *key) {
 
 void tdes_nxp_receive(const void *in, void *out, size_t length, const void *key, unsigned char iv[8], int keymode) {
     if (length % 8) return;
-    if (keymode == 2) mbedtls_des3_set2key_dec(&ctx3, key);
-    else mbedtls_des3_set3key_dec(&ctx3, key);
+    if (keymode == 2)
+        mbedtls_des3_set2key_dec(&ctx3, key);
+    else
+        mbedtls_des3_set3key_dec(&ctx3, key);
 
     uint8_t i;
     unsigned char temp[8];
@@ -95,16 +95,19 @@ void tdes_nxp_receive(const void *in, void *out, size_t length, const void *key,
 
 void tdes_nxp_send(const void *in, void *out, size_t length, const void *key, unsigned char iv[8], int keymode) {
     if (length % 8) return;
-    if (keymode == 2) mbedtls_des3_set2key_enc(&ctx3, key);
-    else mbedtls_des3_set3key_enc(&ctx3, key);
+    if (keymode == 2)
+        mbedtls_des3_set2key_enc(&ctx3, key);
+    else
+        mbedtls_des3_set3key_enc(&ctx3, key);
 
     uint8_t i;
     uint8_t *tin = (uint8_t *) in;
     uint8_t *tout = (uint8_t *) out;
 
     while (length > 0) {
-        for (i = 0; i < 8; i++)
+        for (i = 0; i < 8; i++) {
             tin[i] = (unsigned char)(tin[i] ^ iv[i]);
+        }
 
         mbedtls_des3_crypt_ecb(&ctx3, tin, tout);
 
@@ -116,13 +119,32 @@ void tdes_nxp_send(const void *in, void *out, size_t length, const void *key, un
     }
 }
 
+void aes128_nxp_receive(const void *in, void *out, size_t length, const void *key, unsigned char iv[16]) {
+    if (length % 8) return;
 
+    uint8_t *tin = (uint8_t *) in;
+    uint8_t *tout = (uint8_t *) out;
+
+    mbedtls_aes_setkey_dec(&actx, key, 128);
+    mbedtls_aes_crypt_cbc(&actx, MBEDTLS_AES_DECRYPT, length, iv, tin, tout);
+}
+
+void aes128_nxp_send(const void *in, void *out, size_t length, const void *key, unsigned char iv[16]) {
+    if (length % 8) return;
+
+    uint8_t *tin = (uint8_t *) in;
+    uint8_t *tout = (uint8_t *) out;
+
+    mbedtls_aes_setkey_enc(&actx, key, 128);
+    mbedtls_aes_crypt_cbc(&actx, MBEDTLS_AES_ENCRYPT, length, iv, tin, tout);
+}
 
 void Desfire_des_key_new(const uint8_t value[8], desfirekey_t key) {
     uint8_t data[8];
     memcpy(data, value, 8);
-    for (int n = 0; n < 8; n++)
-        data[n] &= 0xfe;
+    for (int n = 0; n < 8; n++) {
+        data[n] &= 0xFE;
+    }
     Desfire_des_key_new_with_version(data, key);
 }
 
@@ -138,10 +160,12 @@ void Desfire_des_key_new_with_version(const uint8_t value[8], desfirekey_t key) 
 void Desfire_3des_key_new(const uint8_t value[16], desfirekey_t key) {
     uint8_t data[16];
     memcpy(data, value, 16);
-    for (int n = 0; n < 8; n++)
-        data[n] &= 0xfe;
-    for (int n = 8; n < 16; n++)
+    for (int n = 0; n < 8; n++) {
+        data[n] &= 0xFE;
+    }
+    for (int n = 8; n < 16; n++) {
         data[n] |= 0x01;
+    }
     Desfire_3des_key_new_with_version(data, key);
 }
 
@@ -156,8 +180,9 @@ void Desfire_3des_key_new_with_version(const uint8_t value[16], desfirekey_t key
 void Desfire_3k3des_key_new(const uint8_t value[24], desfirekey_t key) {
     uint8_t data[24];
     memcpy(data, value, 24);
-    for (int n = 0; n < 8; n++)
-        data[n] &= 0xfe;
+    for (int n = 0; n < 8; n++) {
+        data[n] &= 0xFE;
+    }
     Desfire_3k3des_key_new_with_version(data, key);
 }
 
@@ -194,13 +219,13 @@ uint8_t Desfire_key_get_version(desfirekey_t key) {
 void Desfire_key_set_version(desfirekey_t key, uint8_t version) {
     for (int n = 0; n < 8; n++) {
         uint8_t version_bit = ((version & (1 << (7 - n))) >> (7 - n));
-        key->data[n] &= 0xfe;
+        key->data[n] &= 0xFE;
         key->data[n] |= version_bit;
         if (key->type == T_DES) {
             key->data[n + 8] = key->data[n];
         } else {
             // Write ~version to avoid turning a 3DES key into a DES key
-            key->data[n + 8] &= 0xfe;
+            key->data[n + 8] &= 0xFE;
             key->data[n + 8] |= ~version_bit;
         }
     }
@@ -242,7 +267,6 @@ void Desfire_session_key_new(const uint8_t rnda[], const uint8_t rndb[], desfire
     }
 }
 
-static void xor(const uint8_t *ivect, uint8_t *data, const size_t len);
 static size_t key_macing_length(desfirekey_t key);
 
 // iceman,  see memxor inside string.c, dest/src swapped..
@@ -264,27 +288,36 @@ void cmac_generate_subkeys(desfirekey_t key) {
 
     mifare_cypher_blocks_chained(NULL, key, ivect, l, kbs, MCD_RECEIVE, MCO_ENCYPHER);
 
-    bool xor = false;
+    bool txor = false;
 
     // Used to compute CMAC on complete blocks
     memcpy(key->cmac_sk1, l, kbs);
-    xor = l[0] & 0x80;
+
+    txor = l[0] & 0x80;
+
     lsl(key->cmac_sk1, kbs);
-    if (xor)
+
+    if (txor) {
         key->cmac_sk1[kbs - 1] ^= R;
+    }
 
     // Used to compute CMAC on the last block if non-complete
     memcpy(key->cmac_sk2, key->cmac_sk1, kbs);
-    xor = key->cmac_sk1[0] & 0x80;
+
+    txor = key->cmac_sk1[0] & 0x80;
+
     lsl(key->cmac_sk2, kbs);
-    if (xor)
+
+    if (txor) {
         key->cmac_sk2[kbs - 1] ^= R;
+    }
 }
 
 void cmac(const desfirekey_t key, uint8_t *ivect, const uint8_t *data, size_t len, uint8_t *cmac) {
     int kbs = key_block_size(key);
-    if (kbs == 0)
+    if (kbs == 0) {
         return;
+    }
 
     uint8_t *buffer = BigBuf_malloc(padded_data_length(len, kbs));
 
@@ -307,8 +340,10 @@ void cmac(const desfirekey_t key, uint8_t *ivect, const uint8_t *data, size_t le
 }
 
 size_t key_block_size(const desfirekey_t key) {
-    if (key == NULL)
+    if (key == NULL) {
         return 0;
+    }
+
     size_t block_size = 8;
     switch (key->type) {
         case T_DES:
@@ -327,15 +362,15 @@ size_t key_block_size(const desfirekey_t key) {
  * Size of MACing produced with the key.
  */
 static size_t key_macing_length(const desfirekey_t key) {
-    size_t mac_length = MAC_LENGTH;
+    size_t mac_length = DESFIRE_MAC_LENGTH;
     switch (key->type) {
         case T_DES:
         case T_3DES:
-            mac_length = MAC_LENGTH;
+            mac_length = DESFIRE_MAC_LENGTH;
             break;
         case T_3K3DES:
         case T_AES:
-            mac_length = CMAC_LENGTH;
+            mac_length = DESFIRE_CMAC_LENGTH;
             break;
     }
     return mac_length;
@@ -400,7 +435,7 @@ void *mifare_cryto_preprocess_data(desfiretag_t tag, void *data, size_t *nbytes,
              * integrity later.
              *
              * The only difference with CMACed data transmission is that the CMAC
-             * is not apended to the data send by the PCD to the PICC.
+             * is not appended to the data send by the PCD to the PICC.
              */
 
             append_mac = false;
@@ -431,7 +466,7 @@ void *mifare_cryto_preprocess_data(desfiretag_t tag, void *data, size_t *nbytes,
                         break;
                     // Append MAC
                     size_t bla = maced_data_length(DESFIRE(tag)->session_key, *nbytes - offset) + offset;
-                    bla++;
+                    (void)bla++;
 
                     memcpy(res + *nbytes, mac, 4);
 
@@ -444,10 +479,10 @@ void *mifare_cryto_preprocess_data(desfiretag_t tag, void *data, size_t *nbytes,
 
                     if (append_mac) {
                         size_t len = maced_data_length(key, *nbytes);
-                        ++len;
+                        (void)++len;
                         memcpy(res, data, *nbytes);
-                        memcpy(res + *nbytes, DESFIRE(tag)->cmac, CMAC_LENGTH);
-                        *nbytes += CMAC_LENGTH;
+                        memcpy(res + *nbytes, DESFIRE(tag)->cmac, DESFIRE_CMAC_LENGTH);
+                        *nbytes += DESFIRE_CMAC_LENGTH;
                     }
                     break;
             }
@@ -508,30 +543,35 @@ void *mifare_cryto_preprocess_data(desfiretag_t tag, void *data, size_t *nbytes,
 
 void *mifare_cryto_postprocess_data(desfiretag_t tag, void *data, size_t *nbytes, int communication_settings) {
     void *res = data;
-    void *edata = NULL;
     uint8_t first_cmac_byte = 0x00;
 
     desfirekey_t key = DESFIRE(tag)->session_key;
 
-    if (!key)
+    if (!key) {
         return data;
+    }
 
     // Return directly if we just have a status code.
-    if (1 == *nbytes)
+    if (1 == *nbytes) {
         return res;
+    }
 
     switch (communication_settings & MDCM_MASK) {
-        case MDCM_PLAIN:
+        case MDCM_PLAIN: {
 
-            if (AS_LEGACY == DESFIRE(tag)->authentication_scheme)
+            if (AS_LEGACY == DESFIRE(tag)->authentication_scheme) {
                 break;
-
+            }
+        }
         /* pass through */
-        case MDCM_MACED:
+        case MDCM_MACED: {
             switch (DESFIRE(tag)->authentication_scheme) {
-                case AS_LEGACY:
-                    if (communication_settings & MAC_VERIFY) {
+                case AS_LEGACY: {
+
+                    if ((communication_settings & MAC_VERIFY) == MAC_VERIFY) {
+
                         *nbytes -= key_macing_length(key);
+
                         if (*nbytes == 0) {
                             *nbytes = -1;
                             res = NULL;
@@ -542,18 +582,17 @@ void *mifare_cryto_postprocess_data(desfiretag_t tag, void *data, size_t *nbytes
                         }
 
                         size_t edl = enciphered_data_length(tag, *nbytes - 1, communication_settings);
-                        edata = BigBuf_malloc(edl);
-
+                        uint8_t edata[edl];
+                        memset(edata, 0, sizeof(edata));
                         memcpy(edata, data, *nbytes - 1);
-                        memset((uint8_t *)edata + *nbytes - 1, 0, edl - *nbytes + 1);
 
                         mifare_cypher_blocks_chained(tag, NULL, NULL, edata, edl, MCD_SEND, MCO_ENCYPHER);
 
-                        if (0 != memcmp((uint8_t *)data + *nbytes - 1, (uint8_t *)edata + edl - 8, 4)) {
+                        if (0 != memcmp((uint8_t *)data + *nbytes - 1, edata + edl - 8, 4)) {
 #ifdef WITH_DEBUG
                             Dbprintf("MACing not verified");
                             hexdump((uint8_t *)data + *nbytes - 1, key_macing_length(key), "Expect ", 0);
-                            hexdump((uint8_t *)edata + edl - 8, key_macing_length(key), "Actual ", 0);
+                            hexdump(edata + edl - 8, key_macing_length(key), "Actual ", 0);
 #endif
                             DESFIRE(tag)->last_pcd_error = CRYPTO_ERROR;
                             *nbytes = -1;
@@ -561,10 +600,16 @@ void *mifare_cryto_postprocess_data(desfiretag_t tag, void *data, size_t *nbytes
                         }
                     }
                     break;
-                case AS_NEW:
-                    if (!(communication_settings & CMAC_COMMAND))
+                }
+                case AS_NEW: {
+
+                    if ((communication_settings & CMAC_COMMAND) != CMAC_COMMAND) {
                         break;
-                    if (communication_settings & CMAC_VERIFY) {
+                    }
+
+                    int n = 0;
+
+                    if ((communication_settings & CMAC_VERIFY) == CMAC_VERIFY) {
                         if (*nbytes < 9) {
                             *nbytes = -1;
                             res = NULL;
@@ -572,13 +617,16 @@ void *mifare_cryto_postprocess_data(desfiretag_t tag, void *data, size_t *nbytes
                         }
                         first_cmac_byte = ((uint8_t *)data)[*nbytes - 9];
                         ((uint8_t *)data)[*nbytes - 9] = ((uint8_t *)data)[*nbytes - 1];
+
+                        n = 8;
                     }
 
-                    int n = (communication_settings & CMAC_VERIFY) ? 8 : 0;
                     cmac(key, DESFIRE(tag)->ivect, ((uint8_t *)data), *nbytes - n, DESFIRE(tag)->cmac);
 
-                    if (communication_settings & CMAC_VERIFY) {
+                    if ((communication_settings & CMAC_VERIFY) == CMAC_VERIFY) {
+
                         ((uint8_t *)data)[*nbytes - 9] = first_cmac_byte;
+
                         if (0 != memcmp(DESFIRE(tag)->cmac, (uint8_t *)data + *nbytes - 9, 8)) {
 #ifdef WITH_DEBUG
                             Dbprintf("CMAC NOT verified :-(");
@@ -593,12 +641,11 @@ void *mifare_cryto_postprocess_data(desfiretag_t tag, void *data, size_t *nbytes
                         }
                     }
                     break;
+                }
             }
-
-            free(edata);
-
             break;
-        case MDCM_ENCIPHERED:
+        }
+        case MDCM_ENCIPHERED: {
             (*nbytes)--;
             bool verified = false;
             int crc_pos = 0x00;
@@ -635,48 +682,50 @@ void *mifare_cryto_postprocess_data(desfiretag_t tag, void *data, size_t *nbytes
              * verified, and accumulating 0's in it should not change it.
              */
             switch (DESFIRE(tag)->authentication_scheme) {
-                case AS_LEGACY:
+                case AS_LEGACY: {
                     crc_pos = *nbytes - 8 - 1; // The CRC can be over two blocks
                     if (crc_pos < 0) {
-                        /* Single block */
-                        crc_pos = 0;
+                        crc_pos = 0; // Single block
                     }
                     break;
-                case AS_NEW:
+                }
+                case AS_NEW: {
                     /* Move status between payload and CRC */
                     res = DESFIRE(tag)->crypto_buffer;
                     memcpy(res, data, *nbytes);
 
                     crc_pos = (*nbytes) - 16 - 3;
                     if (crc_pos < 0) {
-                        /* Single block */
-                        crc_pos = 0;
+                        crc_pos = 0; // Single block
                     }
+
                     memcpy((uint8_t *)res + crc_pos + 1, (uint8_t *)res + crc_pos, *nbytes - crc_pos);
                     ((uint8_t *)res)[crc_pos] = 0x00;
                     crc_pos++;
                     *nbytes += 1;
                     break;
+                }
             }
 
             do {
                 uint16_t crc_16 = 0x00;
                 uint32_t crc = 0x00;
+
                 switch (DESFIRE(tag)->authentication_scheme) {
-                    case AS_LEGACY:
+                    case AS_LEGACY: {
                         AddCrc14A((uint8_t *)res, end_crc_pos);
                         end_crc_pos = crc_pos + 2;
-                        //
-
-
                         crc = crc_16;
                         break;
-                    case AS_NEW:
+                    }
+                    case AS_NEW: {
                         end_crc_pos = crc_pos + 4;
                         crc32_ex(res, end_crc_pos, (uint8_t *)&crc);
                         break;
+                    }
                 }
-                if (!crc) {
+
+                if (crc == 0) {
                     verified = true;
                     for (int n = end_crc_pos; n < *nbytes - 1; n++) {
                         uint8_t byte = ((uint8_t *)res)[n];
@@ -684,31 +733,40 @@ void *mifare_cryto_postprocess_data(desfiretag_t tag, void *data, size_t *nbytes
                             verified = false;
                     }
                 }
+
                 if (verified) {
+
                     *nbytes = crc_pos;
+
                     switch (DESFIRE(tag)->authentication_scheme) {
-                        case AS_LEGACY:
+                        case AS_LEGACY: {
                             ((uint8_t *)data)[(*nbytes)++] = 0x00;
                             break;
-                        case AS_NEW:
+                        }
+                        case AS_NEW: {
                             /* The status byte was already before the CRC */
                             break;
+                        }
                     }
+
                 } else {
                     switch (DESFIRE(tag)->authentication_scheme) {
-                        case AS_LEGACY:
+                        case AS_LEGACY: {
                             break;
-                        case AS_NEW:
+                        }
+                        case AS_NEW: {
                             x = ((uint8_t *)res)[crc_pos - 1];
                             ((uint8_t *)res)[crc_pos - 1] = ((uint8_t *)res)[crc_pos];
                             ((uint8_t *)res)[crc_pos] = x;
                             break;
+                        }
                     }
                     crc_pos++;
                 }
-            } while (!verified && (end_crc_pos < *nbytes));
 
-            if (!verified) {
+            } while (verified == false && (end_crc_pos < *nbytes));
+
+            if (verified == false) {
 #ifdef WITH_DEBUG
                 /* FIXME In some configurations, the file is transmitted PLAIN */
                 Dbprintf("CRC not verified in decyphered stream");
@@ -717,28 +775,28 @@ void *mifare_cryto_postprocess_data(desfiretag_t tag, void *data, size_t *nbytes
                 *nbytes = -1;
                 res = NULL;
             }
-
             break;
-        default:
+        }
+        default: {
             Dbprintf("Unknown communication settings");
             *nbytes = -1;
             res = NULL;
             break;
-
+        }
     }
     return res;
 }
 
 
 void mifare_cypher_single_block(desfirekey_t key, uint8_t *data, uint8_t *ivect, MifareCryptoDirection direction, MifareCryptoOperation operation, size_t block_size) {
-    uint8_t ovect[MAX_CRYPTO_BLOCK_SIZE];
+    uint8_t ovect[DESFIRE_MAX_CRYPTO_BLOCK_SIZE];
     if (direction == MCD_SEND) {
         xor(ivect, data, block_size);
     } else {
         memcpy(ovect, data, block_size);
     }
 
-    uint8_t edata[MAX_CRYPTO_BLOCK_SIZE];
+    uint8_t edata[DESFIRE_MAX_CRYPTO_BLOCK_SIZE] = {0};
 
     switch (key->type) {
         case T_DES:
@@ -831,14 +889,16 @@ void mifare_cypher_blocks_chained(desfiretag_t tag, desfirekey_t key, uint8_t *i
     size_t block_size;
 
     if (tag) {
-        if (!key)
+        if (key == NULL) {
             key = DESFIRE(tag)->session_key;
-        if (!ivect)
+        }
+        if (ivect == NULL) {
             ivect = DESFIRE(tag)->ivect;
+        }
 
         switch (DESFIRE(tag)->authentication_scheme) {
             case AS_LEGACY:
-                memset(ivect, 0, MAX_CRYPTO_BLOCK_SIZE);
+                memset(ivect, 0, DESFIRE_MAX_CRYPTO_BLOCK_SIZE);
                 break;
             case AS_NEW:
                 break;

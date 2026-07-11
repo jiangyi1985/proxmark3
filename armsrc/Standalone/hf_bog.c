@@ -1,7 +1,18 @@
 //-----------------------------------------------------------------------------
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// Copyright (C) Bogiton 2018
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // main code for standalone HF Sniff (and ULC/NTAG/ULEV1 pwd storing)
 //-----------------------------------------------------------------------------
@@ -15,7 +26,7 @@ The retrieved sniffing session can be acquired by connecting the device
 to a client that supports the reconnect capability and issue 'hf 14a list'.
 
 In order to view the grabbed authentication attempts in the flash mem,
-you can simply run 'script run read_pwd_mem' or just 'mem dump p l 256'
+you can simply run 'script run mem_readpwd' or just 'mem dump p l 256'
 from the client to view the stored quadlets.
 */
 
@@ -80,7 +91,7 @@ static void RAMFUNC SniffAndStore(uint8_t param) {
 
     // Setup and start DMA.
     if (!FpgaSetupSscDma((uint8_t *)dmaBuf, DMA_BUFFER_SIZE)) {
-        if (DBGLEVEL > 1)
+        if (g_dbglevel > 1)
             Dbprintf("FpgaSetupSscDma failed. Exiting");
         return;
     }
@@ -102,7 +113,7 @@ static void RAMFUNC SniffAndStore(uint8_t param) {
     SpinDelay(50);
 
     // loop and listen
-    while (!BUTTON_PRESS()) {
+    while (BUTTON_PRESS() == false) {
         WDT_HIT();
         LED_A_ON();
 
@@ -150,7 +161,7 @@ static void RAMFUNC SniffAndStore(uint8_t param) {
                     if (triggered) {
                         if ((receivedCmd) &&
                                 ((receivedCmd[0] == MIFARE_ULEV1_AUTH) || (receivedCmd[0] == MIFARE_ULC_AUTH_1))) {
-                            if (DBGLEVEL > 1)
+                            if (g_dbglevel > 1)
                                 Dbprintf("PWD-AUTH KEY: 0x%02x%02x%02x%02x", receivedCmd[1], receivedCmd[2],
                                          receivedCmd[3], receivedCmd[4]);
 
@@ -214,7 +225,7 @@ static void RAMFUNC SniffAndStore(uint8_t param) {
 
     // Write stuff to spiffs logfile
     if (auth_attempts > 0) {
-        if (DBGLEVEL > 1)
+        if (g_dbglevel > 1)
             Dbprintf("[!] Authentication attempts = %u", auth_attempts);
 
         if (!exists_in_spiffs((char *)HF_BOG_LOGFILE)) {
@@ -224,8 +235,8 @@ static void RAMFUNC SniffAndStore(uint8_t param) {
         }
     }
 
-    if (DBGLEVEL > 1)
-        Dbprintf("[!] Wrote %u Authentification attempts into logfile", auth_attempts);
+    if (g_dbglevel > 1)
+        Dbprintf("[!] Wrote %u Authentication attempts into logfile", auth_attempts);
 
     SpinErr(LED_A, 200, 5);
     SpinDelay(100);
@@ -249,5 +260,5 @@ void RunMod(void) {
     LEDsoff();
     SpinDelay(300);
     Dbprintf("- [ End ] -> You can take shell back ...");
-    Dbprintf("- [  !  ] -> use 'script run read_pwd_mem_spiffs' to print passwords");
+    Dbprintf("- [  !  ] -> use 'script run data_read_pwd_mem_spiffs' to print passwords");
 }

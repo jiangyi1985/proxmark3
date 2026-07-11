@@ -1,24 +1,28 @@
-/*
- * libopenemv - a library to work with EMV family of smart cards
- * Copyright (C) 2012, 2015 Dmitry Eremin-Solenikov
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * https://github.com/lumag/emv-tools/blob/master/lib/include/openemv/tlv.h
- */
+//-----------------------------------------------------------------------------
+// Borrowed initially from https://github.com/lumag/emv-tools/
+// Copyright (C) 2012, 2015 Dmitry Eremin-Solenikov
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
+// libopenemv - a library to work with EMV family of smart cards
+//-----------------------------------------------------------------------------
 
 #ifndef TLV_H
 #define TLV_H
 
 #include "common.h"
+#include <stdbool.h>
 
 typedef uint32_t tlv_tag_t;
 
@@ -28,14 +32,31 @@ struct tlv {
     const unsigned char *value;
 };
 
-struct tlvdb;
+struct tlvdb {
+    struct tlv tag;
+    struct tlvdb *next;
+    struct tlvdb *parent;
+    struct tlvdb *children;
+};
+
+struct tlvdb_root {
+    struct tlvdb db;
+    size_t len;
+    unsigned char buf[];
+};
+
 typedef void (*tlv_cb)(void *data, const struct tlv *tlv, int level, bool is_leaf);
 
 struct tlvdb *tlvdb_fixed(tlv_tag_t tag, size_t len, const unsigned char *value);
 struct tlvdb *tlvdb_external(tlv_tag_t tag, size_t len, const unsigned char *value);
 struct tlvdb *tlvdb_parse(const unsigned char *buf, size_t len);
 struct tlvdb *tlvdb_parse_multi(const unsigned char *buf, size_t len);
+
+bool tlvdb_parse_root(struct tlvdb_root *root);
+bool tlvdb_parse_root_multi(struct tlvdb_root *root);
+
 void tlvdb_free(struct tlvdb *tlvdb);
+void tlvdb_root_free(struct tlvdb_root *root);
 
 struct tlvdb *tlvdb_elm_get_next(struct tlvdb *tlvdb);
 struct tlvdb *tlvdb_elm_get_children(struct tlvdb *tlvdb);

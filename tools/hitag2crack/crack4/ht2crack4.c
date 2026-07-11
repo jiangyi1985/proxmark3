@@ -49,6 +49,7 @@
 #include <inttypes.h>
 #include <math.h>
 #include <pthread.h>
+#include <getopt.h>
 #include "ht2crackutils.h"
 
 /* you could have more than 32 traces, but you shouldn't really need
@@ -225,9 +226,9 @@ static uint64_t packstate(uint64_t s) {
 
 /* create_guess_table mallocs the tables */
 static void create_guess_table(void) {
-    guesses = (struct guess *)malloc(sizeof(struct guess) * maxtablesize);
+    guesses = (struct guess *)calloc(1, sizeof(struct guess) * maxtablesize);
     if (!guesses) {
-        printf("cannot malloc guess table\n");
+        printf("cannot allocate memory for guess table\n");
         exit(1);
     }
 }
@@ -264,9 +265,9 @@ static void init_guess_table(char *filename, char *uidstr) {
     }
 
     num_nRaR = 0;
-    buf = (char *)malloc(lenbuf);
+    buf = (char *)calloc(1, lenbuf);
     if (!buf) {
-        printf("cannot malloc buf\n");
+        printf("cannot calloc buf\n");
         exit(1);
     }
 
@@ -429,9 +430,6 @@ static double score(uint64_t s, unsigned int size, uint64_t ks, unsigned int kss
 
 /* score_traces runs score for each encrypted nonce */
 static void score_traces(struct guess *g, unsigned int size) {
-    uint64_t lfsr;
-    unsigned int i;
-    double sc;
     double total_score = 0.0;
 
     // don't bother scoring traces that are already losers
@@ -439,20 +437,20 @@ static void score_traces(struct guess *g, unsigned int size) {
         return;
     }
 
-    for (i = 0; i < num_nRaR; i++) {
+    for (unsigned int i = 0; i < num_nRaR; i++) {
         // calc next b
         // create lfsr - lower 32 bits is uid, upper 16 bits are lower 16 bits of key
         // then shift by size - 16, insert upper key XOR enc_nonce XOR bitstream,
         // and calc new bit b
-        lfsr = (uid >> (size - 16)) | ((g->key << (48 - size)) ^
-                                       ((nonces[i].enc_nR ^ g->b0to31[i]) << (64 - size)));
+        uint64_t lfsr = (uid >> (size - 16)) | ((g->key << (48 - size)) ^
+                                                ((nonces[i].enc_nR ^ g->b0to31[i]) << (64 - size)));
         g->b0to31[i] = g->b0to31[i] | (ht2crypt(lfsr) << (size - 16));
 
         // create lfsr - lower 16 bits are lower 16 bits of key
         // bits 16-47 are upper bits of key XOR enc_nonce XOR bitstream
         lfsr = g->key ^ ((nonces[i].enc_nR ^ g->b0to31[i]) << 16);
 
-        sc = score(lfsr, size, nonces[i].ks, 32);
+        double sc = score(lfsr, size, nonces[i].ks, 32);
 
         // look out for losers
         if (sc == 0.0) {
@@ -616,17 +614,13 @@ static void execute_round(unsigned int size) {
 
 /* crack is the main cracking algo; it executes the rounds */
 static void crack(void) {
-    unsigned int i;
-    uint64_t revkey;
-    uint64_t foundkey;
-
-    for (i = 16; i <= 48; i++) {
+    for (unsigned int i = 16; i <= 48; i++) {
         fprintf(stderr, "round %2u, size=%2u\n", i - 16, i);
         execute_round(i);
 
         // print some metrics
-        revkey = rev64(guesses[0].key);
-        foundkey = ((revkey >> 40) & 0xff) | ((revkey >> 24) & 0xff00) | ((revkey >> 8) & 0xff0000) | ((revkey << 8) & 0xff000000) | ((revkey << 24) & 0xff00000000) | ((revkey << 40) & 0xff0000000000);
+        uint64_t revkey = rev64(guesses[0].key);
+        uint64_t foundkey = ((revkey >> 40) & 0xff) | ((revkey >> 24) & 0xff00) | ((revkey >> 8) & 0xff0000) | ((revkey << 8) & 0xff000000) | ((revkey << 24) & 0xff00000000) | ((revkey << 40) & 0xff0000000000);
         fprintf(stderr, " guess=%012" PRIx64 ", num_guesses = %u, top score=%1.10f, min score=%1.10f\n", foundkey, num_guesses, guesses[0].score, guesses[num_guesses - 1].score);
     }
 }
@@ -781,7 +775,7 @@ int main(int argc, char *argv[]) {
     uint64_t revkey;
     uint64_t foundkey;
     int tot_nRaR = 0;
-    char c;
+    int c;
     char *uidstr = NULL;
     char *noncefilestr = NULL;
 

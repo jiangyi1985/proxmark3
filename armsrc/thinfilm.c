@@ -1,9 +1,17 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2019 iceman
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Routines to support a mangeled ISO 14443 type A for Thinfilm tags by Kovio
 //-----------------------------------------------------------------------------
@@ -30,7 +38,6 @@
 void ReadThinFilm(void) {
 
     clear_trace();
-
     set_tracing(true);
 
     iso14443a_setup(FPGA_HF_ISO14443A_READER_LISTEN);
@@ -52,26 +59,26 @@ void ReadThinFilm(void) {
 static uint16_t FpgaSendQueueDelay;
 
 static uint16_t ReadReaderField(void) {
-#if defined RDV4
-    return AvgAdc(ADC_CHAN_HF_RDV40);
-#else
     return AvgAdc(ADC_CHAN_HF);
-#endif
 }
 
 static void CodeThinfilmAsTag(const uint8_t *cmd, uint16_t len) {
-    ToSendReset();
+
+    tosend_reset();
+
+    tosend_t *ts = get_tosend();
+
     for (uint16_t i = 0; i < len; i++) {
         uint8_t b = cmd[i];
         for (uint8_t j = 0; j < 8; j++) {
-            ToSend[++ToSendMax] = (b & 0x80) ? SEC_D : SEC_E;
+            ts->buf[++ts->max] = (b & 0x80) ? SEC_D : SEC_E;
             b <<= 1;
         }
     }
-    ToSendMax++;
+    ts->max++;
 }
 
-static int EmSendCmdThinfilmRaw(uint8_t *resp, uint16_t respLen) {
+static int EmSendCmdThinfilmRaw(const uint8_t *resp, uint16_t respLen) {
     volatile uint8_t b;
     uint16_t i = 0;
     uint32_t ThisTransferTime;
@@ -94,7 +101,7 @@ static int EmSendCmdThinfilmRaw(uint8_t *resp, uint16_t respLen) {
         }
 
         if (AT91C_BASE_SSC->SSC_SR & (AT91C_SSC_RXRDY)) {
-            b = (uint16_t)(AT91C_BASE_SSC->SSC_RHR);
+            b = (uint8_t)(AT91C_BASE_SSC->SSC_RHR);
             (void)b;
         }
         if (BUTTON_PRESS()) break;
@@ -114,41 +121,52 @@ static int EmSendCmdThinfilmRaw(uint8_t *resp, uint16_t respLen) {
 }
 
 void SimulateThinFilm(uint8_t *data, size_t len) {
-    Dbprintf("Simulate %i-bit Thinfilm tag", len * 8);
-    Dbhexdump(len, data, true);
-    int16_t status = PM3_SUCCESS;
-    CodeThinfilmAsTag(data, len);
 
     FpgaDownloadAndGo(FPGA_BITSTREAM_HF);
 
+    Dbprintf("Simulate " _YELLOW_("%i-bit Thinfilm") " tag", len * 8);
+    Dbhexdump(len, data, true);
+
     // Set up the synchronous serial port
-    FpgaSetupSsc();
+    FpgaSetupSsc(FPGA_MAJOR_MODE_HF_READER);
 
     // connect Demodulated Signal to ADC:
     SetAdcMuxFor(GPIO_MUXSEL_HIPKD);
 
     FpgaWriteConfWord(FPGA_MAJOR_MODE_HF_ISO14443A | FPGA_HF_ISO14443A_TAGSIM_MOD);
     SpinDelay(100);
+    // Start the timer
+    StartCountSspClk();
 
     uint16_t hf_baseline = ReadReaderField();
 
-    // Start the timer
-    StartCountSspClk();
+    int16_t status = PM3_SUCCESS;
+    CodeThinfilmAsTag(data, len);
+
+    tosend_t *ts = get_tosend();
 
     bool reader_detected = false;
     LED_A_ON();
     for (;;) {
+
         WDT_HIT();
+
         if (BUTTON_PRESS() || data_available()) {
             status = PM3_EOPABORTED;
             break;
         }
+
         uint16_t hf_av = ReadReaderField();
-        if (hf_av < hf_baseline)
+
+        if (hf_av < hf_baseline) {
             hf_baseline = hf_av;
+        }
+
         if (hf_av > hf_baseline + 10) {
-            EmSendCmdThinfilmRaw(ToSend, ToSendMax);
-            if (!reader_detected) {
+
+            EmSendCmdThinfilmRaw(ts->buf, ts->max);
+
+            if (reader_detected == false) {
                 LED_B_ON();
                 //Dbprintf("Reader detected, start beaming data");
                 reader_detected = true;
@@ -156,7 +174,7 @@ void SimulateThinFilm(uint8_t *data, size_t len) {
         } else {
             if (reader_detected) {
                 LED_B_OFF();
-                //Dbprintf("Reader gone, stop beaming data");
+                // Dbprintf("Reader gone, stop beaming data");
                 reader_detected = false;
             }
         }

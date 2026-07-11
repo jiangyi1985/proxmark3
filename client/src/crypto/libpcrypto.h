@@ -1,9 +1,17 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2018 Merlok
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // crypto commands
 //-----------------------------------------------------------------------------
@@ -16,11 +24,24 @@
 #include <stddef.h>
 #include <mbedtls/pk.h>
 
+#define CRYPTO_AES_BLOCK_SIZE 16
+#define CRYPTO_AES128_KEY_SIZE 16
+
+void des_encrypt(void *out, const void *in, const void *key);
+void des_decrypt(void *out, const void *in, const void *key);
+void des_encrypt_ecb(void *out, const void *in, const int length, const void *key);
+void des_decrypt_ecb(void *out, const void *in, const int length, const void *key);
+void des_encrypt_cbc(void *out, const void *in, const int length, const void *key, uint8_t *iv);
+void des_decrypt_cbc(void *out, const void *in, const int length, const void *key, uint8_t *iv);
+void des3_encrypt(void *out, const void *in, const void *key, uint8_t keycount);
+void des3_decrypt(void *out, const void *in, const void *key, uint8_t keycount);
+
 int aes_encode(uint8_t *iv, uint8_t *key, uint8_t *input, uint8_t *output, int length);
 int aes_decode(uint8_t *iv, uint8_t *key, uint8_t *input, uint8_t *output, int length);
 int aes_cmac(uint8_t *iv, uint8_t *key, uint8_t *input, uint8_t *mac, int length);
 int aes_cmac8(uint8_t *iv, uint8_t *key, uint8_t *input, uint8_t *mac, int length);
 
+int sha1hash(uint8_t *input, int length, uint8_t *hash);
 int sha256hash(uint8_t *input, int length, uint8_t *hash);
 int sha512hash(uint8_t *input, int length, uint8_t *hash);
 
@@ -33,5 +54,17 @@ int ecdsa_signature_r_s_verify(mbedtls_ecp_group_id curveid, uint8_t *key_xy, ui
 char *ecdsa_get_error(int ret);
 
 int ecdsa_nist_test(bool verbose);
+
+void bin_xor(uint8_t *d1, const uint8_t *d2, size_t len);
+
+#define ISO9797_M2_PAD_BYTE 0x80
+void AddISO9797M2Padding(uint8_t *ddata, size_t *ddatalen, uint8_t *sdata, size_t sdatalen, size_t blocklen);
+size_t FindISO9797M2PaddingDataLen(const uint8_t *data, size_t datalen);
+
+// BLOWFISH
+int blowfish_decrypt(uint8_t *iv, uint8_t *key, uint8_t *input, uint8_t *output, int length);
+
+// KDF
+int ansi_x963_sha256(uint8_t *sharedSecret, size_t sharedSecretLen, uint8_t *sharedInfo, size_t sharedInfoLen, size_t keyDataLen, uint8_t *keyData);
 
 #endif /* libpcrypto.h */

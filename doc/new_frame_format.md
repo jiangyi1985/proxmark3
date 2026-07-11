@@ -1,11 +1,35 @@
 # New frame format documentation
+<a id="Top"></a>
 
 This document is primarily intended for developers only.
 
 A major change is the support of variable length frames between host and Proxmark3.  
 This is a step especially important for usage over FPC/USART/BT.
 
+
+# Table of Contents
+- [New frame format documentation](#new-frame-format-documentation)
+- [Table of Contents](#table-of-contents)
+  - [Old format](#old-format)
+  - [New format](#new-format)
+  - [Transition](#transition)
+  - [New format API](#new-format-api)
+    - [On the client, for sending frames](#on-the-client-for-sending-frames)
+    - [On the Proxmark3, for receiving frames](#on-the-proxmark3-for-receiving-frames)
+    - [On the Proxmark3, for sending frames](#on-the-proxmark3-for-sending-frames)
+    - [On the client, for receiving frames](#on-the-client-for-receiving-frames)
+  - [API transition](#api-transition)
+  - [Bootrom](#bootrom)
+    - [On the Proxmark3, for receiving frames](#on-the-proxmark3-for-receiving-frames-1)
+    - [On the Proxmark3, for sending frames](#on-the-proxmark3-for-sending-frames-1)
+    - [On the client, for sending frames](#on-the-client-for-sending-frames-1)
+    - [On the client, for receiving frames](#on-the-client-for-receiving-frames-1)
+  - [New usart RX FIFO](#new-usart-rx-fifo)
+  - [Timings](#timings)
+  - [Reference frames](#reference-frames)
+
 ## Old format
+^[Top](#top)
 
 Previously, frames were, in both directions like this:
 
@@ -21,6 +45,7 @@ So the frame size was fixed, 544 bytes, even for simple ACKs.
 When snooping the USB transfers, we can observe the host is sending 544b Bulk USB frames while the Proxmark3 is limited by its internal buffers and is sending 128b, 128b, 128b, 128b, 32b, so in total 5 packets.
 
 ## New format
+^[Top](#top)
 
 Even if we make the payload part variable in the old format, we've still a minimum of 32 bytes per frame with fields arbitrarily large.
 So we designed a new format from scratch:
@@ -41,7 +66,7 @@ For commands being sent to the Proxmark3:
 * `data`:   variable length payload
 * `crc`:    either an actual CRC (crc14a) or a Magic placeholder (`a3`)
 
-For responses from the Proxmark:
+For responses from the Proxmark3:
 
     uint32_t magic;
     uint16_t length : 15;
@@ -74,10 +99,12 @@ Internal structures used to handle these packets are:
 But they are abstracted from the developer view with a new API. See below.
 
 ## Transition
+^[Top](#top)
 
 Because it's a long transition to clean all the code from the old format and because we don't want to break stuffs when flashing the bootloader, the old frames are still supported together with the new frames. The old structure is now called `PacketCommandOLD` and `PacketResponseOLD` and it's also abstracted from the developer view with the new API.
 
 ## New format API
+^[Top](#top)
 
 So the new API is a merge of the old and the new frame formats, to ensure a smooth transition.
 
@@ -114,7 +141,8 @@ After the full transition, we might remove the fields `oldarg` and `ng`.
     } PacketResponseNG;
 
 
-### On the client, for sending frames:
+### On the client, for sending frames
+^[Top](#top)
 
 (`client/comms.c`)
 
@@ -132,7 +160,8 @@ Warning : it makes sense to move from `SendCommandOLD` to `SendCommandMIX` only 
 
 Internally these functions prepare the new or old frames and call `uart_communication` which calls `uart_send`.
 
-### On the Proxmark3, for receiving frames:
+### On the Proxmark3, for receiving frames
+^[Top](#top)
 
 (`armsrc/appmain.c`)
 
@@ -143,7 +172,8 @@ Internally these functions prepare the new or old frames and call `uart_communic
 `PacketReceive` is the commands broker.  
 Old handlers will still find their stuff in `PacketCommandNG.oldarg` field.
 
-### On the Proxmark3, for sending frames:
+### On the Proxmark3, for sending frames
+^[Top](#top)
 
 (`common/cmd.c`)
 
@@ -163,7 +193,8 @@ Example of a handler that supports both OLD/MIX and NG command styles and replie
         reply_mix(CMD_ACK, 0, 0, 0, packet->data.asBytes, packet->length);
     }
 
-### On the client, for receiving frames:
+### On the client, for receiving frames
+^[Top](#top)
 
 (`client/comms.c`)
 
@@ -174,6 +205,7 @@ Example of a handler that supports both OLD/MIX and NG command styles and replie
 Commands do `WaitForResponseTimeoutW` (or `dl_it`) which uses `getReply` to fetch responses.
 
 ## API transition
+^[Top](#top)
 
 In short, to move from one format to the other, we need for each command:
 
@@ -188,14 +220,16 @@ Meanwhile, a fast transition to MIX frames can be done with:
 * (pm3 TX) `reply_old` ⇒ `reply_mix` (but check the limited data size PM3_CMD_DATA_SIZE ⇒ PM3_CMD_DATA_SIZE_MIX)
 
 ## Bootrom
+^[Top](#top)
 
 Bootrom code will still use the old frame format to remain compatible with other repos supporting the old format and because it would hardly gain anything from the new format:
-* almost all frames convey 512b of payload, so difference in overhead is neglictible
+* almost all frames convey 512b of payload, so difference in overhead is negligible
 * bringing flash over usart sounds risky and would be terribly slow anyway (115200 bauds vs. 7M bauds).
 
 `SendCommandBL` is the same as `SendCommandOLD` with a different name to be sure not to migrate it.
 
-### On the Proxmark3, for receiving frames:
+### On the Proxmark3, for receiving frames
+^[Top](#top)
 
 (`bootrom/bootrom.c`)
 
@@ -204,7 +238,8 @@ Bootrom code will still use the old frame format to remain compatible with other
 
 also `usb_enable`, `usb_disable` (`common/usb_cdc.c`)
 
-### On the Proxmark3, for sending frames:
+### On the Proxmark3, for sending frames
+^[Top](#top)
 
 (`bootrom/bootrom.c`)
 
@@ -212,7 +247,8 @@ also `usb_enable`, `usb_disable` (`common/usb_cdc.c`)
 
 also `usb_enable`, `usb_disable` (`common/usb_cdc.c`)
 
-### On the client, for sending frames:
+### On the client, for sending frames
+^[Top](#top)
 
 Therefore, the flasher client (`client/flasher.c` + `client/flash.c`) must still use these old frames.  
 It uses a few commands in common with current client code:
@@ -222,13 +258,15 @@ It uses a few commands in common with current client code:
     SendCommandOLD
       ⇒ CMD_DEVICE_INFO / CMD_START_FLASH / CMD_FINISH_WRITE / CMD_HARDWARE_RESET
 
-### On the client, for receiving frames:
+### On the client, for receiving frames
+^[Top](#top)
 
 As usual, old frames are still supported
 
     WaitForResponseTimeout ⇒ PacketResponseNG
 
 ## New usart RX FIFO
+^[Top](#top)
 
 USART code has been rewritten to cope with unknown size packets.
 * using USART full duplex with double DMA buffer on RX & TX
@@ -264,6 +302,7 @@ USART code has been rewritten to cope with unknown size packets.
   * remember how many bytes we already copied to our FIFO
 
 ## Timings
+^[Top](#top)
 
 Reference (before new format):
 
@@ -288,14 +327,16 @@ USART_BAUD_RATE defined there
 Receiving from USART need more than 30ms as we used on USB
 else we get errors about partial packet reception
 
-    FTDI   9600 hw status        ⇒ we need 20ms
-    FTDI 115200 hw status        ⇒ we need 50ms
-    FTDI 460800 hw status        ⇒ we need 30ms
-    BT   115200 hf mf fchk 1 dic ⇒ we need 140ms
+    FTDI   9600 hw status                   ⇒ we need 20ms
+    FTDI 115200 hw status                   ⇒ we need 50ms
+    FTDI 460800 hw status                   ⇒ we need 30ms
+    BT   115200 hf mf fchk --1k -f file.dic ⇒ we need 140ms
 
-    # define UART_FPC_CLIENT_RX_TIMEOUT_MS  170
-    # define UART_USB_CLIENT_RX_TIMEOUT_MS  20
-    # define UART_TCP_CLIENT_RX_TIMEOUT_MS  300
+    # define UART_FPC_CLIENT_RX_TIMEOUT_MS        200
+    # define UART_USB_CLIENT_RX_TIMEOUT_MS        20
+    # define UART_NET_CLIENT_RX_TIMEOUT_MS        500
+    # define UART_TCP_LOCAL_CLIENT_RX_TIMEOUT_MS  40
+    # define UART_UDP_LOCAL_CLIENT_RX_TIMEOUT_MS  20
 
 This goes to `uart_posix.c` `timeval` struct
 and `uart_win32.c` `serial_port_windows` struct
@@ -303,11 +344,11 @@ and `uart_win32.c` `serial_port_windows` struct
 It starts at UART_FPC_CLIENT_RX_TIMEOUT_MS and once we detect we're working over USB
 it's reduced to UART_USB_CLIENT_RX_TIMEOUT_MS.
 
-
+The timeout is configurable by the `hw timeout` command (since v4.17140).
 
 Add automatically some communication delay in the `WaitForResponseTimeout` & `dl_it` timeouts.  
 Only when using FPC, timeout = 2* empirically measured delay (FTDI cable).  
-Empirically measured delay (FTDI cable) with "hw ping 512" :
+Empirically measured delay (FTDI cable) with "hw ping -l 512" :
 
        usb ⇒    6..  32ms
     460800 ⇒   40..  70ms
@@ -373,9 +414,9 @@ It was needed to tune pm3 RX usart `maxtry` :
     time client/proxmark3 -p /dev/ttyUSB0 -b 115200 -c "lf read"
     6.28s
 
-    time client/proxmark3 -p /dev/ttyACM0 -c "mem dump f foo_usb"
+    time client/proxmark3 -p /dev/ttyACM0 -c "mem dump -f foo_usb"
     1.48s
-    time client/proxmark3 -p /dev/ttyUSB0 -b 115200 -c "mem dump f foo_fpc"
+    time client/proxmark3 -p /dev/ttyUSB0 -b 115200 -c "mem dump -f foo_fpc"
     25.34s
 
 
@@ -416,7 +457,7 @@ Or if it's too complex to determine when we're sending the last command:
 
 
 ## Reference frames
-
+^[Top](#top)
 
 For helping debug...
 
@@ -453,7 +494,7 @@ On linux UART (FTDI)
     CMD_PING reply_ng(CMD_PING, PM3_SUCCESS, packet->data.asBytes, packet->length);
     <-12=504d33620080000009016233                                           <- NG
 
-`hw ping 512` (NG)
+`hw ping -l 512` (NG)
 
     CmdPing  SendCommandNG(CMD_PING, data, len);
     ->522=504d336100820901000102030405060708090a0b0c0d0e0f1011121314151617  -> NG

@@ -1,43 +1,37 @@
-/*****************************************************************************
- * WARNING
- *
- * THIS CODE IS CREATED FOR EXPERIMENTATION AND EDUCATIONAL USE ONLY.
- *
- * USAGE OF THIS CODE IN OTHER WAYS MAY INFRINGE UPON THE INTELLECTUAL
- * PROPERTY OF OTHER PARTIES, SUCH AS INSIDE SECURE AND HID GLOBAL,
- * AND MAY EXPOSE YOU TO AN INFRINGEMENT ACTION FROM THOSE PARTIES.
- *
- * THIS CODE SHOULD NEVER BE USED TO INFRINGE PATENTS OR INTELLECTUAL PROPERTY RIGHTS.
- *
- *****************************************************************************
- *
- * This file is part of loclass. It is a reconstructon of the cipher engine
- * used in iClass, and RFID techology.
- *
- * The implementation is based on the work performed by
- * Flavio D. Garcia, Gerhard de Koning Gans, Roel Verdult and
- * Milosch Meriac in the paper "Dismantling IClass".
- *
- * Copyright (C) 2014 Martin Holst Swende
- *
- * This is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as published
- * by the Free Software Foundation, or, at your option, any later version.
- *
- * This file is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with loclass.  If not, see <http://www.gnu.org/licenses/>.
- *
- *
- *
- ****************************************************************************/
-
-/**
-
+//-----------------------------------------------------------------------------
+// Borrowed initially from https://github.com/holiman/loclass
+// Copyright (C) 2014 Martin Holst Swende
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
+// WARNING
+//
+// THIS CODE IS CREATED FOR EXPERIMENTATION AND EDUCATIONAL USE ONLY.
+//
+// USAGE OF THIS CODE IN OTHER WAYS MAY INFRINGE UPON THE INTELLECTUAL
+// PROPERTY OF OTHER PARTIES, SUCH AS INSIDE SECURE AND HID GLOBAL,
+// AND MAY EXPOSE YOU TO AN INFRINGEMENT ACTION FROM THOSE PARTIES.
+//
+// THIS CODE SHOULD NEVER BE USED TO INFRINGE PATENTS OR INTELLECTUAL PROPERTY RIGHTS.
+//-----------------------------------------------------------------------------
+// It is a reconstruction of the cipher engine used in iClass, and RFID techology.
+//
+// The implementation is based on the work performed by
+// Flavio D. Garcia, Gerhard de Koning Gans, Roel Verdult and
+// Milosch Meriac in the paper "Dismantling IClass".
+//-----------------------------------------------------------------------------
+/*
   This file contains an optimized version of the MAC-calculation algorithm. Some measurements on
   a std laptop showed it runs in about 1/3 of the time:
 
@@ -77,7 +71,15 @@
   -- piwi 2019
 **/
 
+/**
+  add the possibility to do iCLASS on device only
+  -- iceman 2020
+**/
+
 #include "optimized_cipher.h"
+#include "optimized_elite.h"
+#include "optimized_ikeys.h"
+#include "optimized_cipherutils.h"
 
 static const uint8_t opt_select_LUT[256] = {
     00, 03, 02, 01, 02, 03, 00, 01, 04, 07, 07, 04, 06, 07, 05, 04,
@@ -113,12 +115,12 @@ static void init_opt_select_LUT(void) {
     print_result("", opt_select_LUT, 256);
 }
 ***********************************************************************************/
-
+/*
 #define opt__select(x,y,r)  (4 & (((r & (r << 2)) >> 5) ^ ((r & ~(r << 2)) >> 4) ^ ( (r | r << 2) >> 3)))\
     |(2 & (((r | r << 2) >> 6) ^ ( (r | r << 2) >> 1) ^ (r >> 5) ^ r ^ ((x^y) << 1)))\
     |(1 & (((r & ~(r << 2)) >> 4) ^ ((r & (r << 2)) >> 3) ^ r ^ x))
 
-/*
+
  * Some background on the expression above can be found here...
 uint8_t xopt__select(bool x, bool y, uint8_t r)
 {
@@ -141,7 +143,7 @@ uint8_t xopt__select(bool x, bool y, uint8_t r)
 }
 */
 
-static void opt_successor(const uint8_t *k, State *s, uint8_t y) {
+static void opt_successor(const uint8_t *k, State_t *s, uint8_t y) {
 // #define opt_T(s) (0x1 & ((s->t >> 15) ^ (s->t >> 14) ^ (s->t >> 10) ^ (s->t >> 8) ^ (s->t >> 5) ^ (s->t >> 4)^ (s->t >> 1) ^ s->t))
     // uint8_t Tt = opt_T(s);
     uint16_t Tt = s->t & 0xc533;
@@ -170,7 +172,7 @@ static void opt_successor(const uint8_t *k, State *s, uint8_t y) {
     s->l = s->r + r;
 }
 
-static void opt_suc(const uint8_t *k, State *s, uint8_t *in, uint8_t length, bool add32Zeroes) {
+static void opt_suc(const uint8_t *k, State_t *s, const uint8_t *in, uint8_t length, bool add32Zeroes) {
     for (int i = 0; i < length; i++) {
         uint8_t head;
         head = in[i];
@@ -199,14 +201,16 @@ static void opt_suc(const uint8_t *k, State *s, uint8_t *in, uint8_t length, boo
     }
     //For tag MAC, an additional 32 zeroes
     if (add32Zeroes) {
-        for (int i = 0; i < 16; i++) {
+        for (int i = 0; i < 8; i++) {
+            opt_successor(k, s, 0);
+            opt_successor(k, s, 0);
             opt_successor(k, s, 0);
             opt_successor(k, s, 0);
         }
     }
 }
 
-static void opt_output(const uint8_t *k, State *s,  uint8_t *buffer) {
+static void opt_output(const uint8_t *k, State_t *s,  uint8_t *buffer) {
     for (uint8_t times = 0; times < 4; times++) {
         uint8_t bout = 0;
         bout |= (s->r & 0x4) >> 2;
@@ -230,7 +234,7 @@ static void opt_output(const uint8_t *k, State *s,  uint8_t *buffer) {
 }
 
 static void opt_MAC(uint8_t *k, uint8_t *input, uint8_t *out) {
-    State _init  =  {
+    State_t _init  =  {
         ((k[0] ^ 0x4c) + 0xEC) & 0xFF,// l
         ((k[0] ^ 0x4c) + 0x21) & 0xFF,// r
         0x4c, // b
@@ -241,15 +245,38 @@ static void opt_MAC(uint8_t *k, uint8_t *input, uint8_t *out) {
     opt_output(k, &_init, out);
 }
 
+static void opt_MAC_N(uint8_t *k, uint8_t *input, uint8_t in_size, uint8_t *out) {
+    State_t _init  =  {
+        ((k[0] ^ 0x4c) + 0xEC) & 0xFF,// l
+        ((k[0] ^ 0x4c) + 0x21) & 0xFF,// r
+        0x4c, // b
+        0xE012 // t
+    };
+
+    opt_suc(k, &_init, input, in_size, false);
+    opt_output(k, &_init, out);
+}
+
 void opt_doReaderMAC(uint8_t *cc_nr_p, uint8_t *div_key_p, uint8_t mac[4]) {
     uint8_t dest [] = {0, 0, 0, 0, 0, 0, 0, 0};
     opt_MAC(div_key_p, cc_nr_p, dest);
     memcpy(mac, dest, 4);
-    return;
+}
+
+void opt_doReaderMAC_2(State_t _init,  uint8_t *nr, uint8_t mac[4], const uint8_t *div_key_p) {
+    opt_suc(div_key_p, &_init, nr, 4, false);
+    opt_output(div_key_p, &_init, mac);
+}
+
+
+void doMAC_N(uint8_t *in_p, uint8_t in_size, uint8_t *div_key_p, uint8_t mac[4]) {
+    uint8_t dest [] = {0, 0, 0, 0, 0, 0, 0, 0};
+    opt_MAC_N(div_key_p, in_p, in_size, dest);
+    memcpy(mac, dest, 4);
 }
 
 void opt_doTagMAC(uint8_t *cc_p, const uint8_t *div_key_p, uint8_t mac[4]) {
-    State _init  =  {
+    State_t _init  =  {
         ((div_key_p[0] ^ 0x4c) + 0xEC) & 0xFF,// l
         ((div_key_p[0] ^ 0x4c) + 0x21) & 0xFF,// r
         0x4c, // b
@@ -257,7 +284,6 @@ void opt_doTagMAC(uint8_t *cc_p, const uint8_t *div_key_p, uint8_t mac[4]) {
     };
     opt_suc(div_key_p, &_init, cc_p, 12, true);
     opt_output(div_key_p, &_init, mac);
-    return;
 }
 
 /**
@@ -268,8 +294,8 @@ void opt_doTagMAC(uint8_t *cc_p, const uint8_t *div_key_p, uint8_t mac[4]) {
  * @param div_key_p
  * @return the cipher state
  */
-State opt_doTagMAC_1(uint8_t *cc_p, const uint8_t *div_key_p) {
-    State _init  =  {
+State_t opt_doTagMAC_1(uint8_t *cc_p, const uint8_t *div_key_p) {
+    State_t _init  =  {
         ((div_key_p[0] ^ 0x4c) + 0xEC) & 0xFF,// l
         ((div_key_p[0] ^ 0x4c) + 0x21) & 0xFF,// r
         0x4c, // b
@@ -288,8 +314,27 @@ State opt_doTagMAC_1(uint8_t *cc_p, const uint8_t *div_key_p) {
  * @param mac - where to store the MAC
  * @param div_key_p - the key to use
  */
-void opt_doTagMAC_2(State _init,  uint8_t *nr, uint8_t mac[4], const uint8_t *div_key_p) {
+void opt_doTagMAC_2(State_t _init,  uint8_t *nr, uint8_t mac[4], const uint8_t *div_key_p) {
     opt_suc(div_key_p, &_init, nr, 4, true);
     opt_output(div_key_p, &_init, mac);
-    return;
+}
+
+
+void iclass_calc_div_key(uint8_t *csn, uint8_t *key, uint8_t *div_key, bool elite) {
+    if (elite) {
+        uint8_t keytable[128] = {0};
+        uint8_t key_index[8] = {0};
+        uint8_t key_sel[8] = { 0 };
+        uint8_t key_sel_p[8] = { 0 };
+        hash2(key, keytable);
+        hash1(csn, key_index);
+        for (uint8_t i = 0; i < 8 ; i++)
+            key_sel[i] = keytable[key_index[i]];
+
+        //Permute from iclass format to standard format
+        permutekey_rev(key_sel, key_sel_p);
+        diversifyKey(csn, key_sel_p, div_key);
+    } else {
+        diversifyKey(csn, key, div_key);
+    }
 }

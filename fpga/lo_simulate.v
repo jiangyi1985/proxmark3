@@ -1,4 +1,19 @@
 //-----------------------------------------------------------------------------
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
+//
 // The way that we connect things in low-frequency simulation mode. In this
 // case just pass everything through to the ARM, which can bit-bang this
 // (because it is so slow).
@@ -7,23 +22,27 @@
 //-----------------------------------------------------------------------------
 
 module lo_simulate(
-    pck0, ck_1356meg, ck_1356megb,
-    pwr_lo, pwr_hi, pwr_oe1, pwr_oe2, pwr_oe3, pwr_oe4,
-    adc_d, adc_clk,
-    ssp_frame, ssp_din, ssp_dout, ssp_clk,
-    cross_hi, cross_lo,
-    dbg,
-     divisor
+    input pck0,
+    input ck_1356meg,
+    input ck_1356megb,
+    input [7:0] adc_d,
+    input [7:0] divisor,
+    input cross_hi,
+    input cross_lo,
+    input ssp_dout,
+
+    output ssp_din,
+    output ssp_frame,
+    output ssp_clk,
+    output adc_clk,
+    output pwr_lo,
+    output pwr_hi,
+    output pwr_oe1,
+    output pwr_oe2,
+    output pwr_oe3,
+    output pwr_oe4,
+    output debug
 );
-    input pck0, ck_1356meg, ck_1356megb;
-    output pwr_lo, pwr_hi, pwr_oe1, pwr_oe2, pwr_oe3, pwr_oe4;
-    input [7:0] adc_d;
-    output adc_clk;
-    input ssp_dout;
-    output ssp_frame, ssp_din, ssp_clk;
-    input cross_hi, cross_lo;
-    output dbg;
-     input [7:0] divisor;
 
 // No logic, straight through.
 assign pwr_oe3 = 1'b0;
@@ -31,9 +50,9 @@ assign pwr_oe1 = ssp_dout;
 assign pwr_oe2 = ssp_dout;
 assign pwr_oe4 = ssp_dout;
 assign ssp_clk = cross_lo;
-assign pwr_lo = 1'b0;
-assign pwr_hi = 1'b0;
-assign dbg = ssp_frame;
+assign pwr_lo  = 1'b0;
+assign pwr_hi  = 1'b0;
+assign debug   = ssp_frame;
 
 // Divide the clock to be used for the ADC
 reg [7:0] pck_divider;

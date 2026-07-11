@@ -1,4 +1,25 @@
-# Notes on ARM & FPGA comms
+# Notes on ARM & FPGA communications
+<a id="top"></a>
+
+# Table of Contents
+- [Notes on ARM \& FPGA communications](#notes-on-arm--fpga-communications)
+- [Table of Contents](#table-of-contents)
+- [INTERFACE FROM THE ARM TO THE FPGA](#interface-from-the-arm-to-the-fpga)
+  - [FPGA](#fpga)
+    - [FPGA modes](#fpga-modes)
+  - [ARM FPGA communications](#arm-fpga-communications)
+  - [ARM GPIO setup](#arm-gpio-setup)
+  - [FPGA Setup](#fpga-setup)
+- [HARDWARE OVERVIEW](#hardware-overview)
+  - [ADC (ANALOG TO DIGITAL CONVERTER)](#adc-analog-to-digital-converter)
+  - [FIELD PROGRAMMABLE GATE ARRAY, FPGA](#field-programmable-gate-array-fpga)
+  - [MICROCONTROLLER](#microcontroller)
+  - [](#)
+  - [To behave like a READER](#to-behave-like-a-reader)
+  - [To behave like a TAG](#to-behave-like-a-tag)
+  - [To sniff traffic](#to-sniff-traffic)
+  - [FPGA purpose](#fpga-purpose)
+
 
 
 https://github.com/RfidResearchGroup/proxmark3/blob/master/doc/original_proxmark3/proxmark3.pdf
@@ -34,7 +55,9 @@ LF analog path (MCP6294 opamp. This has a GBW of 10 MHz),  all 'slow' signals.  
 
 
 ## FPGA
-Since the SPARTAN II is a old outdated FPGA, thus is very limited resource there was a need to split LF and HF functionality into two seperate FPGA images.  Which are stored in ARM flash memory as bitstreams.
+^[Top](#top)
+
+Since the SPARTAN II is a old outdated FPGA, thus is very limited resource there was a need to split LF and HF functionality into two separate FPGA images.  Which are stored in ARM flash memory as bitstreams.
 
 We swap between these images by flashing fpga from ARM on the go.  It takes about 1sec.   Hence its usually a bad idea to program your device to continuously execute LF alt HF commands.
 
@@ -43,63 +66,77 @@ The FPGA images is precompiled and located inside the /fpga folder.
   - fpga_lf.bit
 
 There is very rarely changes to the images so there is no need to setup a fpga tool chain to compile it yourself.
-Since the FPGA is very old,  the Xilinix WebPack ISE 10.1  is the last working tool chain.  You can download this legacy development on xilinix and register for a free product installation id.
+Since the FPGA is very old,  the Xilinx WebPack ISE 10.1  is the last working tool chain.  You can download this legacy development on Xilinx and register for a free product installation id.
 Or use mine  `11LTAJ5ZJK3PXTUBMF0C0J6C4`    The package to download is about 7Gb and linux based.   Though I recently managed to install it on WSL for Windows 10.
+
+There is a docker image with webpack installed which has been built which you can use to easily compile the images:
+
+```
+docker pull nhutton/prox-container:webp_image_complete
+docker run -v <LOCAL_PATH>/proxmark3:/tmp --rm -it nhutton/prox-container:webp_image_complete bash
+$ cd /tmp/proxmark/fpga
+$ make all
+```
 
 In order to save space,  these fpga images are LZ4 compressed and included in the fullimage.elf file when compiling the ARM SRC.  `make armsrc`
 This means we save some precious space on the ARM but its a bit more complex when flashing to fpga since it has to decompress on the fly.  
 
 
-### FPGA modes.
+### FPGA modes
+^[Top](#top)
+
  - Major modes
  - Minor modes
 
-## ARM FPGA communications.
+## ARM FPGA communications
+^[Top](#top)
 
 The ARM talks with FPGA over the Synchronous Serial Port (SSC)  rx an tx.
 
 ARM, send a 16bit configuration with fits the select major mode.
- 
 
 
 ## ARM GPIO setup
+^[Top](#top)
 
 ```
-	// First configure the GPIOs, and get ourselves a clock.
-	AT91C_BASE_PIOA->PIO_ASR =
-		GPIO_SSC_FRAME  |
-		GPIO_SSC_DIN    |
-		GPIO_SSC_DOUT   |
-		GPIO_SSC_CLK;
-	AT91C_BASE_PIOA->PIO_PDR = GPIO_SSC_DOUT;
+    // First configure the GPIOs, and get ourselves a clock.
+    AT91C_BASE_PIOA->PIO_ASR =
+        GPIO_SSC_FRAME  |
+        GPIO_SSC_DIN    |
+        GPIO_SSC_DOUT   |
+        GPIO_SSC_CLK;
+    AT91C_BASE_PIOA->PIO_PDR = GPIO_SSC_DOUT;
 
-	AT91C_BASE_PMC->PMC_PCER = (1 << AT91C_ID_SSC);
+    AT91C_BASE_PMC->PMC_PCER = (1 << AT91C_ID_SSC);
 
-	// Now set up the SSC proper, starting from a known state.
-	AT91C_BASE_SSC->SSC_CR = AT91C_SSC_SWRST;
+    // Now set up the SSC proper, starting from a known state.
+    AT91C_BASE_SSC->SSC_CR = AT91C_SSC_SWRST;
 
-	// RX clock comes from TX clock, RX starts on Transmit Start,
-	// data and frame signal is sampled on falling edge of RK
-	AT91C_BASE_SSC->SSC_RCMR = SSC_CLOCK_MODE_SELECT(1) | SSC_CLOCK_MODE_START(1);
+    // RX clock comes from TX clock, RX starts on Transmit Start,
+    // data and frame signal is sampled on falling edge of RK
+    AT91C_BASE_SSC->SSC_RCMR = SSC_CLOCK_MODE_SELECT(1) | SSC_CLOCK_MODE_START(1);
 
-	// 8, 16 or 32 bits per transfer, no loopback, MSB first, 1 transfer per sync
-	// pulse, no output sync
-	if ((FPGA_mode & FPGA_MAJOR_MODE_MASK) == FPGA_MAJOR_MODE_HF_READER && FpgaGetCurrent() == FPGA_BITSTREAM_HF) {
-		AT91C_BASE_SSC->SSC_RFMR = SSC_FRAME_MODE_BITS_IN_WORD(16) | AT91C_SSC_MSBF | SSC_FRAME_MODE_WORDS_PER_TRANSFER(0);
-	} else {
-		AT91C_BASE_SSC->SSC_RFMR = SSC_FRAME_MODE_BITS_IN_WORD(8) | AT91C_SSC_MSBF | SSC_FRAME_MODE_WORDS_PER_TRANSFER(0);
-	}
+    // 8, 16 or 32 bits per transfer, no loopback, MSB first, 1 transfer per sync
+    // pulse, no output sync
+    if ((FPGA_mode & FPGA_MAJOR_MODE_MASK) == FPGA_MAJOR_MODE_HF_READER && FpgaGetCurrent() == FPGA_BITSTREAM_HF) {
+        AT91C_BASE_SSC->SSC_RFMR = SSC_FRAME_MODE_BITS_IN_WORD(16) | AT91C_SSC_MSBF | SSC_FRAME_MODE_WORDS_PER_TRANSFER(0);
+    } else {
+        AT91C_BASE_SSC->SSC_RFMR = SSC_FRAME_MODE_BITS_IN_WORD(8) | AT91C_SSC_MSBF | SSC_FRAME_MODE_WORDS_PER_TRANSFER(0);
+    }
 
-	// TX clock comes from TK pin, no clock output, outputs change on rising edge of TK, 
-	// TF (frame sync) is sampled on falling edge of TK, start TX on rising edge of TF
-	AT91C_BASE_SSC->SSC_TCMR = SSC_CLOCK_MODE_SELECT(2) | SSC_CLOCK_MODE_START(5);
+    // TX clock comes from TK pin, no clock output, outputs change on rising edge of TK, 
+    // TF (frame sync) is sampled on falling edge of TK, start TX on rising edge of TF
+    AT91C_BASE_SSC->SSC_TCMR = SSC_CLOCK_MODE_SELECT(2) | SSC_CLOCK_MODE_START(5);
 
-	// tx framing is the same as the rx framing
-	AT91C_BASE_SSC->SSC_TFMR = AT91C_BASE_SSC->SSC_RFMR;
+    // tx framing is the same as the rx framing
+    AT91C_BASE_SSC->SSC_TFMR = AT91C_BASE_SSC->SSC_RFMR;
 
 ```
 
 ## FPGA Setup
+^[Top](#top)
+
 
 // Set up DMA to receive samples from the FPGA. We will use the PDC, with
 // a single buffer as a circular buffer (so that we just chain back to
@@ -107,13 +144,19 @@ ARM, send a 16bit configuration with fits the select major mode.
 
 
 # HARDWARE OVERVIEW
+^[Top](#top)
+
 
 ## ADC (ANALOG TO DIGITAL CONVERTER)
+^[Top](#top)
+
 The analogue signal that comes from the antenna circuit is fed into an 8-bit Analogue to Digital Converter
 (ADC). This delivers 8 output bits in parallel which represent the current voltage retrieved from the field.
 
 
 ## FIELD PROGRAMMABLE GATE ARRAY, FPGA
+^[Top](#top)
+
 The 8 output pins from the ADC are connected to 8 pins of the Field Programmable Gate Array (FPGA). An
 FPGA has a great advantage over a normal microcontroller in the sense that it emulates hardware. A
 hardware description can be compiled and flashed into an FPGA.
@@ -131,7 +174,7 @@ it into the memory of the FPGA. This gives some major advantages:
  
 The FPGA has two main tasks. The first task is to demodulate the signal received from the ADC and relay
 this as a digital encoded signal to the ARM. Depending on the task this might be the demodulation of a
-100% Amplitude Shift Keying (ASK) signal from the reader or the load modulation of a card. The encodin
+100% Amplitude Shift Keying (ASK) signal from the reader or the load modulation of a card. The encoding
 schemes used to communicate the signal to the ARM are Modified Miller for the reader and Manchester
 encoding for the card signal.
 
@@ -141,6 +184,8 @@ FPGA generates an electromagnetic field on power hi and drops the amplitude for 
 
 
 ## MICROCONTROLLER
+^[Top](#top)
+
 The microcontroller is responsible for the protocol management. It receives the digital encoded signals
 from the FPGA and decodes them. The decoded signals can just be copied to a buffer in the EEPROM
 memory. Additionally, an answer to the received message can be send by encoding a reply and
@@ -149,14 +194,14 @@ communicating this to the FPGA.
 The microcontroller (ARM) implements the transport layer. First it decodes the samples received from
 the FPGA. These samples are stored in a Direct Memory Access (DMA) buffer. The samples are binary
 sequences that represent whether the signal was high or low. The software on the ARM tries to decode
-these samples. When the Proxmark is in sniffing mode this is done for both the Manchester and Modified
+these samples. When the Proxmark3 is in sniffing mode this is done for both the Manchester and Modified
 Miller at the same time. Whenever one of the decoding procedures returns a valid message, this message
 is stored in another buffer (BigBuf) and both decoding procedures are set to an un-synced state. The
 BigBuf is limited to the available memory on the ARM. The current firmware has 2 KB of memory
-reserved for traces (Besides the tracethe buffer also stores some temporary data that is needed in the
+reserved for traces (Besides the trace, the buffer also stores some temporary data that is needed in the
 processing). When the BigBuf buffer is full the function normally returns. A new function call from the
 client is needed to download the BigBuf contents to the computer. The BigBuf is especially useful for
-ptocol investigation. Every single message is stored in this buffer. When a card is emulated or when the
+protocol investigation. Every single message is stored in this buffer. When a card is emulated or when the
 Proxmark is used as a reader the BigBuf can be used to store status messages or protocol exceptions.
 
 ```
@@ -185,13 +230,17 @@ Problems:
 
 ## 
 
-## To behave like a READER.
+## To behave like a READER
+^[Top](#top)
+
 By driving all of the buffers LOW, it is possible to make the antenna
 look to the receive path like a parallel LC circuit; this provides a
 high-voltage output signal. This is typically what will be done when we
 are not actively transmitting a carrier (i.e., behaving as a reader).
 
 ## To behave like a TAG
+^[Top](#top)
+
 On the receive side, there are two possibilities, which are selected by
 RLY1. A mechanical relay is used, because the signal from the antenna is
 likely to be more positive or negative than the highest or lowest supply
@@ -222,11 +271,14 @@ is the master) or its generic synchronous serial port (again, the ARM
 is the master). The ARM connects to the outside world over USB.
 
 ## To sniff traffic
+^[Top](#top)
 
 
 
 ##  FPGA purpose
-Digtal signal processing.
+^[Top](#top)
+
+Digital signal processing.
 In short,  apply low pass / hi pass filtering,   peak detect,  correlate signal meaning IQ pair collecting.
 
 IQ means measure at In-phase and 90 phase shift later Quadrature-phase,    with IQ samples you can plot the signal on a vector plan.

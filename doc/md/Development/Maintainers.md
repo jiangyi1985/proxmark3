@@ -34,26 +34,26 @@ E.g. you might need to move the documentation elsewhere according to your distro
 make install PREFIX=/usr INSTALLDOCSRELPATH=share/doc/proxmark3-${version}
 ```
 
-It's possible to add other firmwares as well with tagged names (`FWTAG=<mytag>`), e.g. here we're compiling another image for non-RDV4 devices:
+It's possible to add other firmwares as well with tagged names (`FWTAG=<mytag>`), e.g. here we're compiling another image for generic Proxmark3 devices:
 
 ```
-make -j fullimage PLATFORM=PM3OTHER PLATFORM_EXTRAS=
-make fullimage/install PLATFORM=PM3OTHER PLATFORM_EXTRAS= DESTDIR=build PREFIX=/usr FWTAG=other
+make -j fullimage PLATFORM=PM3GENERIC PLATFORM_EXTRAS=
+make fullimage/install PLATFORM=PM3GENERIC PLATFORM_EXTRAS= DESTDIR=build PREFIX=/usr FWTAG=generic
 ```
 
-and it will be added along the other firmware as:
+and it will be added along the other firmwares as:
 
 ```
-./build/usr/share/proxmark3/firmware/fullimage-other.elf
+./build/usr/share/proxmark3/firmware/fullimage-generic.elf
 ```
 
 For verbose usage and see the actual commands being executed, add `V=1`.
 
-`CFLAGS` and `LDFLAGS` can be overriden by environment variables for client-side components.
+`CFLAGS` and `LDFLAGS` can be overridden by environment variables for client-side components.
 
-`CROSS_CFLAGS` and `CROSS_LDFLAGS` can be overriden by environment variables for ARM-side components.
+Default compiler is gcc but you can use clang for the non-ARM parts with e.g. `make client CC=clang CXX=clang++ LD=clang++`. Note that `CC`, `CXX` and `LD` must be provided as explicit arguments, they won't be overridden by environment variables.
 
-Default compiler is gcc but you can use clang for the non-ARM parts with e.g. `make client CC=clang CXX=clang++ LD=clang++`.
+Similarly, for ARM-side components, `CROSS_CFLAGS` and `CROSS_LDFLAGS` can be overridden by environment variables and `CROSS_CC`, `CROSS_LD` and `CROSS_OBJCOPY` can be provided as explicit arguments.
 
 If your platform needs specific lib/include paths for the client, you can use `LDLIBS` and `INCLUDES_CLIENT` *as envvars*, e.g. `LDLIBS="-L/some/more/lib" INCLUDES_CLIENT="-I/some/more/include" make client ...`
 
@@ -66,6 +66,11 @@ It's also possible to skip parts even if libraries are present in the compilatio
 * `make client SKIPJANSSONSYSTEM=1` to skip system Jansson lib even if libjansson is present, use embedded Jansson lib instead
 * `make client SKIPWHEREAMISYSTEM=1` to skip system Whereami lib even if libwhereami is present, use embedded whereami lib instead
 
+By default, the client is using Readline, but this can be disabled:
+* `make client SKIPREADLINE=1` to skip system Readline lib even if libreadline is present
+
+When Readline is disabled, it is possible to use Linenoise instead. Note that Linenoise-ng contains `ConvertUTF.cpp` which is under a redistribution-only license, therefore think twice before including it in a release. To get Linenoise-ng, see `client/deps/get_linenoise.sh`.
+
 If you're cross-compiling, these ones might be useful:
 
 * `make client SKIPREVENGTEST=1` to skip compilation and execution of a consistency test for reveng, which can be problematic in case of cross-compilation
@@ -77,7 +82,7 @@ On some architectures, pthread library is not present:
 
 One tool requires a CUDA compilation environment, it can be skipped as well:
 
-* `make hitag2crack SKIPGPU=1` to skip ht2crack5gpu tool when compiling the hitag2crack toolsuite.
+* `make hitag2crack SKIPOPENCL=1` to skip ht2crack5opencl tool when compiling the hitag2crack toolsuite.
 
 Some unittests are available via `make check`, which is actually triggering individual targets as for `make install`.
 

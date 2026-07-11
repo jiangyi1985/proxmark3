@@ -1,10 +1,17 @@
 //-----------------------------------------------------------------------------
-// Jonathan Westhues, Aug 2005
-// Copyright (C) 2010 Hector Martin "marcan" <marcan@marcansoft.com>
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Common string.h functions
 //-----------------------------------------------------------------------------
@@ -17,7 +24,7 @@
 int strlen(const char *str);
 void *memcpy(void *dest, const void *src, int len);
 void *memmove(void *dest, const void *src, size_t len);
-void *memset(void *dest, int c, int len);
+void *memset(void *dest, uint8_t c, int len);
 int memcmp(const void *av, const void *bv, int len);
 void memxor(uint8_t *dest, uint8_t *src, size_t len);
 char *strncat(char *dest, const char *src, unsigned int n);

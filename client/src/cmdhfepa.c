@@ -1,9 +1,17 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2012 Frederik Möllers
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Commands related to the German electronic Identification Card
 //-----------------------------------------------------------------------------
@@ -14,7 +22,8 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <stdlib.h>
-
+#include <ctype.h>        // tolower
+#include "cliparser.h"
 #include "cmdparser.h"    // command_t
 #include "commonutil.h"   // ARRAYLEN
 #include "comms.h"        // clearCommandBuffer
@@ -25,14 +34,26 @@ static int CmdHelp(const char *Cmd);
 
 // Perform (part of) the PACE protocol
 static int CmdHFEPACollectPACENonces(const char *Cmd) {
-    // requested nonce size
-    uint32_t m = 0;
-    // requested number of Nonces
-    uint32_t n = 0;
-    // delay between requests
-    uint32_t d = 0;
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "hf epa cnonces",
+                  "Tries to collect nonces when doing part of PACE protocol.",
+                  "hf epa cnonces --size 4 --num 4 --delay 1");
 
-    sscanf(Cmd, "%u %u %u", &m, &n, &d);
+    void *argtable[] = {
+        arg_param_begin,
+        arg_int1(NULL, "size", "<dec>", "nonce size"),
+        arg_int1(NULL, "num", "<dec>", "number of nonces to collect"),
+        arg_int1("d", "delay", "<dec>", "delay between attempts"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, false);
+
+
+    int m = arg_get_int_def(ctx, 1, 0);
+    int n = arg_get_int_def(ctx, 2, 0);
+    int d = arg_get_int_def(ctx, 3, 0);
+
+    CLIParserFree(ctx);
 
     // values are expected to be > 0
     m = m > 0 ? m : 1;
@@ -40,22 +61,31 @@ static int CmdHFEPACollectPACENonces(const char *Cmd) {
 
     PrintAndLogEx(SUCCESS, "Collecting %u %u byte nonces", n, m);
     PrintAndLogEx(SUCCESS, "Start: %" PRIu64, msclock() / 1000);
-    // repeat n times
+
+    struct p {
+        uint32_t m;
+    } PACKED payload;
+    payload.m = m;
+
     for (uint32_t i = 0; i < n; i++) {
         // execute PACE
-        clearCommandBuffer();
-        SendCommandMIX(CMD_HF_EPA_COLLECT_NONCE, (int)m, 0, 0, NULL, 0);
+
         PacketResponseNG resp;
-        WaitForResponse(CMD_ACK, &resp);
+        clearCommandBuffer();
+        SendCommandNG(CMD_HF_EPA_COLLECT_NONCE, (uint8_t *)&payload, sizeof(payload));
+
+        WaitForResponse(CMD_HF_EPA_COLLECT_NONCE, &resp);
 
         // check if command failed
         if (resp.oldarg[0] != 0) {
             PrintAndLogEx(FAILED, "Error in step %" PRId64 ", Return code: %" PRId64, resp.oldarg[0], resp.oldarg[1]);
         } else {
             size_t nonce_length = resp.oldarg[1];
+            size_t nonce_length_bytes = 2 * nonce_length + 1;
             char *nonce = (char *) calloc(2 * nonce_length + 1, sizeof(uint8_t));
             for (int j = 0; j < nonce_length; j++) {
-                sprintf(nonce + (2 * j), "%02X", resp.data.asBytes[j]);
+                int nonce_offset = 2 * j;
+                snprintf(nonce + nonce_offset, (nonce_length_bytes * sizeof(uint8_t)) - nonce_offset, "%02X", resp.data.asBytes[j]);
             }
             // print nonce
             PrintAndLogEx(SUCCESS, "Length: %zu, Nonce: %s", nonce_length, nonce);
@@ -65,65 +95,65 @@ static int CmdHFEPACollectPACENonces(const char *Cmd) {
             sleep(d);
         }
     }
+
     PrintAndLogEx(SUCCESS, "End: %" PRIu64, msclock() / 1000);
     return PM3_SUCCESS;
 }
 
 // perform the PACE protocol by replaying APDUs
 static int CmdHFEPAPACEReplay(const char *Cmd) {
-    // the 4 APDUs which are replayed + their lengths
-    uint8_t msesa_apdu[41] = {0}, gn_apdu[8] = {0}, map_apdu[75] = {0};
-    uint8_t pka_apdu[75] = {0}, ma_apdu[18] = {0}, apdu_lengths[5] = {0};
-    // pointers to the arrays to be able to iterate
-    uint8_t *apdus[] = {msesa_apdu, gn_apdu, map_apdu, pka_apdu, ma_apdu};
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "hf epa replay",
+                  "Perform PACE protocol by replaying given APDUs",
+                  "hf epa replay --mse 0022C1A4 --get 1068000000 --map 1086000002 --pka 1234ABCDEF --ma 1A2B3C4D"
+                 );
 
-    // usage message
-    static const char *usage_msg =
-        "Please specify 5 APDUs separated by spaces. "
-        "Example:\n preplay 0022C1A4 1068000000 1086000002 1234ABCDEF 1A2B3C4D";
+    void *argtable[] = {
+        arg_param_begin,
+        arg_str1(NULL, "mse", "<hex>", "msesa APDU"),
+        arg_str1(NULL, "get", "<hex>", "gn APDU"),
+        arg_str1(NULL, "map", "<hex>", "map APDU"),
+        arg_str1(NULL, "pka", "<hex>", "pka APDU"),
+        arg_str1(NULL, "ma", "<hex>", "ma APDU"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, false);
+
+    int msesa_len = 0;
+    uint8_t msesa_apdu[41] = {0};
+    CLIGetHexWithReturn(ctx, 1, msesa_apdu, &msesa_len);
+
+    int gn_len = 0;
+    uint8_t gn_apdu[8] = {0};
+    CLIGetHexWithReturn(ctx, 2, gn_apdu, &gn_len);
+
+    int map_len = 0;
+    uint8_t map_apdu[75] = {0};
+    CLIGetHexWithReturn(ctx, 3, map_apdu, &map_len);
+
+    int pka_len = 0;
+    uint8_t pka_apdu[75] = {0};
+    CLIGetHexWithReturn(ctx, 4, pka_apdu, &pka_len);
+
+    int ma_len = 0;
+    uint8_t ma_apdu[18] = {0};
+    CLIGetHexWithReturn(ctx, 5, ma_apdu, &ma_len);
+
+    CLIParserFree(ctx);
+
+    uint8_t apdu_lengths[5] = {msesa_len, gn_len, map_len, pka_len, ma_len};
+    // pointers to the arrays to be able to iterate
+    const uint8_t *apdus[] = {msesa_apdu, gn_apdu, map_apdu, pka_apdu, ma_apdu};
 
     // Proxmark response
     PacketResponseNG resp;
 
-    int skip = 0, skip_add = 0, scan_return;
-    // for each APDU
-    for (int i = 0; i < ARRAYLEN(apdu_lengths); i++) {
-        // scan to next space or end of string
-        while (Cmd[skip] != ' ' && Cmd[skip] != '\0') {
-            // convert
-            scan_return = sscanf(Cmd + skip,
-                                 "%2" SCNx8 "%n",
-                                 apdus[i] + apdu_lengths[i],
-                                 &skip_add
-                                );
-
-            if (scan_return < 1) {
-                PrintAndLogEx(INFO, (char *)usage_msg);
-                PrintAndLogEx(WARNING, "Not enough APDUs! Try again!");
-                return PM3_SUCCESS;
-            }
-            skip += skip_add;
-            apdu_lengths[i]++;
-        }
-
-        // break on EOF
-        if (Cmd[skip] == '\0') {
-            if (i < ARRAYLEN(apdu_lengths) - 1) {
-
-                PrintAndLogEx(INFO, (char *)usage_msg);
-                return PM3_SUCCESS;
-            }
-            break;
-        }
-        // skip the space
-        skip++;
-    }
-
-    // transfer the APDUs to the Proxmark
+    // transfer the APDUs to the Proxmark3
     uint8_t data[PM3_CMD_DATA_SIZE];
     // fast push mode
-    conn.block_after_ACK = true;
+    g_conn.block_after_ACK = true;
     for (int i = 0; i < ARRAYLEN(apdu_lengths); i++) {
+
         // transfer the APDU in several parts if necessary
         for (int j = 0; j * sizeof(data) < apdu_lengths[i]; j++) {
             // amount of data in this packet
@@ -133,7 +163,7 @@ static int CmdHFEPAPACEReplay(const char *Cmd) {
             }
             if ((i == ARRAYLEN(apdu_lengths) - 1) && (j * sizeof(data) >= apdu_lengths[i] - 1)) {
                 // Disable fast mode on last packet
-                conn.block_after_ACK = false;
+                g_conn.block_after_ACK = false;
             }
             memcpy(data, // + (j * sizeof(data)),
                    apdus[i] + (j * sizeof(data)),
@@ -142,8 +172,11 @@ static int CmdHFEPAPACEReplay(const char *Cmd) {
             clearCommandBuffer();
             // arg0: APDU number
             // arg1: offset into the APDU
-            SendCommandOLD(CMD_HF_EPA_REPLAY, i + 1, j * sizeof(data), packet_length, data, packet_length);
-            WaitForResponse(CMD_ACK, &resp);
+            SendCommandMIX(CMD_HF_EPA_REPLAY, i + 1, j * sizeof(data), packet_length, data, packet_length);
+            if (WaitForResponseTimeout(CMD_HF_EPA_REPLAY, &resp, 2500) == false) {
+                PrintAndLogEx(WARNING, "command time out");
+                return PM3_ETIMEOUT;
+            }
             if (resp.oldarg[0] != 0) {
                 PrintAndLogEx(WARNING, "Transfer of APDU #%d Part %d failed!", i, j);
                 return PM3_ESOFT;
@@ -155,6 +188,7 @@ static int CmdHFEPAPACEReplay(const char *Cmd) {
     clearCommandBuffer();
     SendCommandMIX(CMD_HF_EPA_REPLAY, 0, 0, 0, NULL, 0);
     WaitForResponse(CMD_ACK, &resp);
+
     if (resp.oldarg[0] != 0) {
         PrintAndLogEx(SUCCESS, "\nPACE replay failed in step %u!", (uint32_t)resp.oldarg[0]);
         PrintAndLogEx(SUCCESS, "Measured times:");
@@ -174,10 +208,72 @@ static int CmdHFEPAPACEReplay(const char *Cmd) {
     return PM3_SUCCESS;
 }
 
+// perform the PACE protocol by replaying APDUs
+static int CmdHFEPAPACESimulate(const char *Cmd) {
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "hf epa sim",
+                  "Simulate PACE protocol with given password pwd of type pty.\n"
+                  "The crypto is performed on pc or proxmark",
+                  "hf epa sim --pwd 112233445566\n"
+                  "hf epa sim --pc --pty 1 --pwd 112233445566"
+                 );
+
+    void *argtable[] = {
+        arg_param_begin,
+        arg_lit1(NULL, "pc",           "perform crypto on PC"),
+        arg_str1(NULL, "pty", "<hex>", "type of password"),
+        arg_str1("p",  "pwd", "<hex>", "password"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, false);
+
+//    bool use_pc = arg_get_lit(ctx, 1);
+//  uint8_t pwd_type = 0;
+
+    int plen = 0;
+    uint8_t pwd[6] = {0};
+    CLIGetHexWithReturn(ctx, 3, pwd, &plen);
+
+    CLIParserFree(ctx);
+
+    PrintAndLogEx(INFO, "Starting PACE simulation...");
+
+
+    clearCommandBuffer();
+    SendCommandMIX(CMD_HF_EPA_PACE_SIMULATE, 0, 0, 0, pwd, plen);
+
+    PacketResponseNG resp;
+    WaitForResponse(CMD_ACK, &resp);
+
+    uint32_t *data = resp.data.asDwords;
+
+    if (resp.oldarg[0] != 0) {
+        PrintAndLogEx(INFO, "\nPACE failed in step %u!", (uint32_t)resp.oldarg[0]);
+        PrintAndLogEx(INFO, "MSE Set AT: %u us", data[0]);
+        PrintAndLogEx(INFO, "GA Get Nonce: %u us", data[1]);
+        PrintAndLogEx(INFO, "GA Map Nonce: %u us", data[2]);
+        PrintAndLogEx(INFO, "GA Perform Key Agreement: %u us", data[3]);
+        PrintAndLogEx(INFO, "GA Mutual Authenticate: %u us", data[4]);
+        PrintAndLogEx(INFO, "----------------");
+    } else {
+        PrintAndLogEx(INFO, "PACE successful!");
+        PrintAndLogEx(INFO, "MSE Set AT: %u us", data[0]);
+        PrintAndLogEx(INFO, "GA Get Nonce: %u us", data[1]);
+        PrintAndLogEx(INFO, "GA Map Nonce: %u us", data[2]);
+        PrintAndLogEx(INFO, "GA Perform Key Agreement: %u us", data[3]);
+        PrintAndLogEx(INFO, "GA Mutual Authenticate: %u us", data[4]);
+        PrintAndLogEx(INFO, "----------------");
+    }
+
+    return PM3_SUCCESS;
+}
+
+
 static command_t CommandTable[] = {
     {"help",    CmdHelp,                   AlwaysAvailable, "This help"},
-    {"cnonces", CmdHFEPACollectPACENonces, IfPm3Iso14443,   "<m> <n> <d> Acquire n>0 encrypted PACE nonces of size m>0 with d sec pauses"},
-    {"preplay", CmdHFEPAPACEReplay,        IfPm3Iso14443,   "<mse> <get> <map> <pka> <ma> Perform PACE protocol by replaying given APDUs"},
+    {"cnonces", CmdHFEPACollectPACENonces, IfPm3Iso14443,   "Acquire encrypted PACE nonces of specific size"},
+    {"replay",  CmdHFEPAPACEReplay,        IfPm3Iso14443,   "Perform PACE protocol by replaying given APDUs"},
+    {"sim",     CmdHFEPAPACESimulate,      IfPm3Iso14443,   "Simulate PACE protocol"},
     {NULL, NULL, NULL, NULL}
 };
 

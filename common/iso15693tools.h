@@ -1,12 +1,20 @@
 //-----------------------------------------------------------------------------
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // ISO15693 other commons
 //-----------------------------------------------------------------------------
-// Adrian Dabrowski 2010 and otherss
-// Christian Herrmann 2018
 
 #ifndef ISO15693_H__
 #define ISO15693_H__
@@ -36,7 +44,7 @@
 
 //RESPONSE FLAGS
 #define ISO15_RES_ERROR                  0x01
-#define ISO15_RES_EXT                    0x08 // Protocol Extention
+#define ISO15_RES_EXT                    0x08 // Protocol Extension
 
 // RESPONSE ERROR CODES
 #define ISO15_NOERROR                    0x00
@@ -49,47 +57,6 @@
 #define ISO15_ERROR_BLOCK_LOCKED         0x12 // cannot be changed
 #define ISO15_ERROR_BLOCK_WRITE          0x13 // Writing was unsuccessful
 #define ISO15_ERROR_BLOCL_WRITELOCK      0x14 // Locking was unsuccessful
-
-// COMMAND CODES
-#define ISO15_CMD_INVENTORY               0x01
-#define ISO15_CMD_STAYQUIET               0x02
-#define ISO15_CMD_READ                    0x20
-#define ISO15_CMD_WRITE                   0x21
-#define ISO15_CMD_LOCK                    0x22
-#define ISO15_CMD_READMULTI               0x23
-#define ISO15_CMD_WRITEMULTI              0x24
-#define ISO15_CMD_SELECT                  0x25
-#define ISO15_CMD_RESET                   0x26
-#define ISO15_CMD_WRITEAFI                0x27
-#define ISO15_CMD_LOCKAFI                 0x28
-#define ISO15_CMD_WRITEDSFID              0x29
-#define ISO15_CMD_LOCKDSFID               0x2A
-#define ISO15_CMD_SYSINFO                 0x2B
-#define ISO15_CMD_SECSTATUS               0x2C
-#define ISO15_CMD_INVENTORYREAD           0xA0
-#define ISO15_CMD_FASTINVENTORYREAD       0xA1
-#define ISO15_CMD_SETEAS                  0xA2
-#define ISO15_CMD_RESETEAS                0xA3
-#define ISO15_CMD_LOCKEAS                 0xA4
-#define ISO15_CMD_EASALARM                0xA5
-#define ISO15_CMD_PASSWORDPROTECTEAS      0xA6
-#define ISO15_CMD_WRITEEASID              0xA7
-#define ISO15_CMD_READEPC                 0xA8
-#define ISO15_CMD_GETNXPSYSTEMINFO        0xAB
-#define ISO15_CMD_INVENTORYPAGEREAD       0xB0
-#define ISO15_CMD_FASTINVENTORYPAGEREAD   0xB1
-#define ISO15_CMD_GETRANDOMNUMBER         0xB2
-#define ISO15_CMD_SETPASSWORD             0xB3
-#define ISO15_CMD_WRITEPASSWORD           0xB4
-#define ISO15_CMD_LOCKPASSWORD            0xB5
-#define ISO15_CMD_PROTECTPAGE             0xB6
-#define ISO15_CMD_LOCKPAGEPROTECTION      0xB7
-#define ISO15_CMD_GETMULTIBLOCKPROTECTION 0xB8
-#define ISO15_CMD_DESTROY                 0xB9
-#define ISO15_CMD_ENABLEPRIVACY           0xBA
-#define ISO15_CMD_64BITPASSWORDPROTECTION 0xBB
-#define ISO15_CMD_STAYQUIETPERSISTENT     0xBC
-#define ISO15_CMD_READSIGNATURE           0xBD
 
 //-----------------------------------------------------------------------------
 // Map a sequence of octets (~layer 2 command) into the set of bits to feed

@@ -124,9 +124,7 @@ static int is_kmiddle_badguess(uint64_t z, struct Tklower *Tk, int max, int aR0)
 // function to test if a partial key is valid
 static int testkey(uint64_t *out, uint64_t uid, uint64_t pkey, uint64_t nR, uint64_t aR) {
     uint64_t kupper;
-    uint64_t key;
     Hitag_State hstate;
-    uint64_t b;
     uint32_t revaR;
     uint32_t normaR;
 
@@ -136,9 +134,9 @@ static int testkey(uint64_t *out, uint64_t uid, uint64_t pkey, uint64_t nR, uint
 
     // search for remaining 14 bits
     for (kupper = 0; kupper < 0x3fff; kupper++) {
-        key = (kupper << 34) | pkey;
+        uint64_t key = (kupper << 34) | pkey;
         hitag2_init(&hstate, key, uid, nR);
-        b = hitag2_nstep(&hstate, 32);
+        uint64_t b = hitag2_nstep(&hstate, 32);
         if ((normaR ^ b) == 0xffffffff) {
             *out = key;
             return 1;
@@ -177,13 +175,11 @@ static void *crack(void *d) {
     struct nRaR *TnRaR;
     unsigned int numnrar;
 
-    Hitag_State hstate;
     int i, j;
 
     uint64_t klower, kmiddle, klowery;
     uint64_t y, b, z, bit;
     uint64_t ytmp;
-    unsigned int count;
     uint64_t foundkey, revkey;
     int ret;
     unsigned int found;
@@ -200,7 +196,7 @@ static void *crack(void *d) {
     numnrar = data->numnrar;
 
     // create space for tables
-    Tk = (struct Tklower *)malloc(sizeof(struct Tklower) * 0x40000);
+    Tk = (struct Tklower *)calloc(sizeof(struct Tklower) * 0x40000, sizeof(uint8_t));
     if (!Tk) {
         printf("Failed to allocate memory (Tk)\n");
         exit(1);
@@ -210,7 +206,7 @@ static void *crack(void *d) {
     for (klower = data->klowerstart; klower < (data->klowerstart + data->klowerrange); klower++) {
         printf("trying klower = 0x%05"PRIx64"\n", klower);
         // build table
-        count = 0;
+        unsigned int count = 0;
         for (y = 0; y < 0x40000; y++) {
             // create klowery
             klowery = (y << 16) | klower;
@@ -220,17 +216,15 @@ static void *crack(void *d) {
                 // store klowery
                 Tk[count].klowery = klowery;
                 // build the initial prng state
-                hstate.shiftreg = (klower << 32) | uid;
-                // zero the lfsr so only 0s are inserted
-                hstate.lfsr = 0;
+                uint64_t shiftreg = (klower << 32) | uid;
                 // insert y into shiftreg and extract keystream, reversed order
                 b = 0;
                 ytmp = y;
                 for (j = 0; j < 2; j++) {
-                    hstate.shiftreg = hstate.shiftreg | ((ytmp & 0xffff) << 48);
+                    shiftreg = shiftreg | ((ytmp & 0xffff) << 48);
                     for (i = 0; i < 16; i++) {
-                        hstate.shiftreg = hstate.shiftreg >> 1;
-                        bit = hitag2_crypt(hstate.shiftreg);
+                        shiftreg = shiftreg >> 1;
+                        bit = hitag2_crypt(shiftreg);
                         b = (b >> 1) | (bit << 31);
                     }
                     ytmp = ytmp >> 16;
@@ -242,8 +236,8 @@ static void *crack(void *d) {
                 // get and store inverse of next bit from prng
                 // don't need to worry about shifting in the new bit because
                 // it doesn't affect the filter function anyway
-                hstate.shiftreg = hstate.shiftreg >> 1;
-                Tk[count].notb32 = hitag2_crypt(hstate.shiftreg) ^ 0x1;
+                shiftreg = shiftreg >> 1;
+                Tk[count].notb32 = hitag2_crypt(shiftreg) ^ 0x1;
 
                 // increase count
                 count++;
@@ -320,7 +314,7 @@ int main(int argc, char *argv[]) {
     }
 
     // create table of nR aR pairs
-    TnRaR = (struct nRaR *)malloc(sizeof(struct nRaR) * NUM_NRAR);
+    TnRaR = (struct nRaR *)calloc(sizeof(struct nRaR) * NUM_NRAR, sizeof(uint8_t));
 
     // open file
     fp = fopen(argv[2], "r");
@@ -338,9 +332,9 @@ int main(int argc, char *argv[]) {
 
     // read in nR aR pairs
     numnrar = 0;
-    buf = (char *)malloc(lenbuf);
+    buf = (char *)calloc(1, lenbuf);
     if (!buf) {
-        printf("cannot malloc buf\n");
+        printf("cannot calloc buf\n");
         exit(1);
     }
 
@@ -374,9 +368,9 @@ int main(int argc, char *argv[]) {
     printf("Loaded %u NrAr pairs\n", numnrar);
 
     // create table of thread data
-    tdata = (struct threaddata *)malloc(sizeof(struct threaddata) * NUM_THREADS);
+    tdata = (struct threaddata *)calloc(1, sizeof(struct threaddata) * NUM_THREADS);
     if (!tdata) {
-        printf("cannot malloc threaddata\n");
+        printf("cannot calloc threaddata\n");
         exit(1);
     }
 
@@ -392,13 +386,14 @@ int main(int argc, char *argv[]) {
         // debug mode only runs one thread from klowerstart
         tdata[0].klowerstart = klowerstart;
         crack(tdata);
-    } else {
-        // run full threaded mode
-        for (i = 0; i < NUM_THREADS; i++) {
-            if (pthread_create(&(threads[i]), NULL, crack, (void *)(tdata + i))) {
-                printf("cannot start thread %d\n", i);
-                exit(1);
-            }
+        return 0;
+    }
+
+    // run full threaded mode
+    for (i = 0; i < NUM_THREADS; i++) {
+        if (pthread_create(&(threads[i]), NULL, crack, (void *)(tdata + i))) {
+            printf("cannot start thread %d\n", i);
+            exit(1);
         }
     }
 

@@ -40,8 +40,8 @@ int main(int argc, char *argv[]) {
     printf(" {nr_1}: %08x\n", nr1_enc);
     printf(" {ar_1}: %08x\n", ar1_enc);
 
-    // Generate lfsr succesors of the tag challenge
-    printf("\nLFSR succesors of the tag challenge:\n");
+    // Generate lfsr successors of the tag challenge
+    printf("\nLFSR successors of the tag challenge:\n");
     uint32_t p64 = prng_successor(nt, 64);
     printf("  nt': %08x\n", p64);
     printf(" nt'': %08x\n", prng_successor(p64, 32));

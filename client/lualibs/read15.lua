@@ -72,7 +72,7 @@ local function read15693(slow, dont_readresponse)
     We start by trying this command:
     MANDATORY (present in ALL iso15693 tags) command (the example below is sent to a tag different from the above one):
 
-        pm3> hf 15 info u
+        pm3> hf 15 info --ua
         UID=E007C1A257394244
         Tag Info: Texas Instrument; Tag-it HF-I Standard; 8x32bit
         pm3>
@@ -133,7 +133,7 @@ end
 -- @return if successful: an table containing card info
 -- @return if unsuccessful : nil, error
 local function waitFor15693()
-    print('Waiting for card... press Enter to quit')
+    print('Waiting for card... press <Enter> to quit')
     while not core.kbd_enter_pressed() do
         res, err = read15693()
         if res then return res end

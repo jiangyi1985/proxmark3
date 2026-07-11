@@ -1,36 +1,21 @@
-/*
- * at91sam7s USB CDC device implementation
- *
- * Copyright (c) 2012, Roel Verdult
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * 1. Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the copyright holders nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ''AS IS'' AND ANY
- * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * based on the "Basic USB Example" from ATMEL (doc6123.pdf)
- *
- * @file usb_cdc.c
- * @brief
- */
+//-----------------------------------------------------------------------------
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
+// at91sam7s USB CDC device implementation
+// based on the "Basic USB Example" from ATMEL (doc6123.pdf)
+//-----------------------------------------------------------------------------
 
 #ifndef _USB_CDC_H_
 #define _USB_CDC_H_
@@ -38,14 +23,24 @@
 #include "common.h"
 #include "at91sam7s512.h"
 
+#define AT91C_USB_EP_CONTROL_SIZE   8
+#define AT91C_USB_EP_OUT_SIZE       64
+#define AT91C_USB_EP_IN_SIZE        64
+
 void usb_disable(void);
 void usb_enable(void);
 bool usb_check(void);
 bool usb_poll(void);
+uint16_t usb_available_length(void);
 bool usb_poll_validate_length(void);
 uint32_t usb_read(uint8_t *data, size_t len);
 int usb_write(const uint8_t *data, const size_t len);
+int async_usb_write_start(void);
+void async_usb_write_pushByte(uint8_t data);
+bool async_usb_write_requestWrite(void);
+int async_usb_write_stop(void);
 uint32_t usb_read_ng(uint8_t *data, size_t len);
+void usb_update_serial(uint64_t newSerialNumber);
 
 void SetUSBreconnect(int value);
 int GetUSBreconnect(void);

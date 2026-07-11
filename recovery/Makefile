@@ -6,18 +6,26 @@ ifneq (,$(FWTAG))
 else
     INSTALLFWTAG = $(notdir $(INSTALLFW))
 endif
+FWMAXSIZE = $(shell echo $$(($(PLATFORM_SIZE)*1024)))
 
 BINS = bootrom.bin fullimage.bin $(INSTALLFW)
 
 all: $(BINS)
+	@FWSIZE=$$(wc -c < $(INSTALLFW));\
+	if [ $$FWSIZE -gt $(FWMAXSIZE) ]; then \
+		echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"; \
+	    echo "ERROR: Firmware image too large for your platform! $$FWSIZE > $(FWMAXSIZE)"; \
+		echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"; \
+		exit 1; \
+	fi
 
 bootrom.bin: ../bootrom/obj/bootrom.elf
 	$(info [=] GEN $@)
-	$(Q)$(OBJCOPY) --gap-fill=0xff --pad-to 0x00102000 -O binary $^ $@
+	$(Q)$(CROSS_OBJCOPY) --gap-fill=0xff --pad-to 0x00102000 -O binary $^ $@
 
 fullimage.bin: ../armsrc/obj/fullimage.elf
 	$(info [=] GEN $@)
-	$(Q)$(OBJCOPY) --gap-fill=0xff -O binary $^ $@
+	$(Q)$(CROSS_OBJCOPY) --gap-fill=0xff -O binary $^ $@
 
 proxmark3_recovery.bin: bootrom.bin fullimage.bin
 	$(info [=] GEN $@)
@@ -28,11 +36,11 @@ clean:
 
 install: all
 	$(info [@] Installing recovery to $(DESTDIR)$(PREFIX)...)
-	$(Q)$(MKDIR) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLFWRELPATH)
-	$(Q)$(CP) $(INSTALLFW) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLFWRELPATH)$(PATHSEP)$(INSTALLFWTAG)
+	$(Q)$(INSTALLSUDO) $(MKDIR) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLFWRELPATH)
+	$(Q)$(INSTALLSUDO) $(CP) $(INSTALLFW) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLFWRELPATH)$(PATHSEP)$(INSTALLFWTAG)
 
 uninstall:
 	$(info [@] Uninstalling recovery from $(DESTDIR)$(PREFIX)...)
-	$(Q)$(RM) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLFWRELPATH)$(PATHSEP)$(INSTALLFWTAG)
+	$(Q)$(INSTALLSUDO) $(RM) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLFWRELPATH)$(PATHSEP)$(INSTALLFWTAG)
 
 .PHONY: all clean install uninstall

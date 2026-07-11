@@ -1,9 +1,17 @@
 //-----------------------------------------------------------------------------
-// (c) 2012 Roel Verdult
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // MIFARE type prototyping
 //-----------------------------------------------------------------------------
@@ -48,6 +56,32 @@ typedef struct {
     uint8_t ats[256];
 } PACKED iso14a_card_select_t;
 
+typedef struct {
+    uint8_t uid[10];
+    uint8_t uidlen;
+    uint8_t atqa[2];
+    uint8_t sak;
+    uint8_t ats_len;
+    uint8_t ats[256];
+    uint8_t signature[32];
+} PACKED iso14a_card_select_ev1_t;
+
+typedef struct {
+    iso14a_card_select_t card_info;
+    uint16_t dumplen;
+    uint8_t *dump;
+} iso14a_mf_extdump_t;
+
+typedef struct {
+    union {
+        iso14a_card_select_t mfc;
+        iso14a_card_select_ev1_t ev1;
+    } card;
+    uint16_t dumplen;
+    uint8_t *dump;
+} iso14a_mf_dump_ev1_t;
+
+
 typedef enum ISO14A_COMMAND {
     ISO14A_CONNECT = (1 << 0),
     ISO14A_NO_DISCONNECT = (1 << 1),
@@ -59,8 +93,28 @@ typedef enum ISO14A_COMMAND {
     ISO14A_NO_SELECT = (1 << 7),
     ISO14A_TOPAZMODE = (1 << 8),
     ISO14A_NO_RATS = (1 << 9),
-    ISO14A_SEND_CHAINING = (1 << 10)
+    ISO14A_SEND_CHAINING = (1 << 10),
+    ISO14A_USE_ECP = (1 << 11),
+    ISO14A_USE_MAGSAFE = (1 << 12),
+    ISO14A_USE_CUSTOM_POLLING = (1 << 13)
 } iso14a_command_t;
+
+// Defines a frame that will be used in a polling sequence
+// ECP Frames are up to (7 + 16) bytes long, 24 bytes should cover future and other cases
+typedef struct {
+    uint8_t frame[24];
+    uint8_t frame_length;
+    uint8_t last_byte_bits;
+    uint16_t extra_delay;
+} PACKED iso14a_polling_frame_t;
+
+// Defines polling sequence configuration
+// 6 would be enough for 4 magsafe, 1 wupa, 1 ecp,
+typedef struct {
+    iso14a_polling_frame_t frames[6];
+    uint8_t frame_count;
+    uint16_t extra_timeout;
+} PACKED iso14a_polling_parameters_t;
 
 typedef struct {
     uint8_t *response;
@@ -94,41 +148,14 @@ typedef enum {
     MFDES_ALGO_AES = 4
 } mifare_des_authalgo_t;
 
+typedef enum {
+    MFDES_KDF_ALGO_NONE = 0,
+    MFDES_KDF_ALGO_AN10922 = 1,
+    MFDES_KDF_ALGO_GALLAGHER = 2,
+} mifare_des_kdf_algo_t;
 
 //-----------------------------------------------------------------------------
-// ISO 14443B
-//-----------------------------------------------------------------------------
-typedef struct {
-    uint8_t uid[10];
-    uint8_t uidlen;
-    uint8_t atqb[7];
-    uint8_t chipid;
-    uint8_t cid;
-} PACKED iso14b_card_select_t;
-
-typedef enum ISO14B_COMMAND {
-    ISO14B_CONNECT = (1 << 0),
-    ISO14B_DISCONNECT = (1 << 1),
-    ISO14B_APDU = (1 << 2),
-    ISO14B_RAW = (1 << 3),
-    ISO14B_REQUEST_TRIGGER = (1 << 4),
-    ISO14B_APPEND_CRC = (1 << 5),
-    ISO14B_SELECT_STD = (1 << 6),
-    ISO14B_SELECT_SR = (1 << 7),
-    ISO14B_SET_TIMEOUT = (1 << 8),
-} iso14b_command_t;
-
-typedef enum ISO15_COMMAND {
-    ISO15_CONNECT = (1 << 0),
-    ISO15_NO_DISCONNECT = (1 << 1),
-    ISO15_RAW = (1 << 2),
-    ISO15_APPEND_CRC = (1 << 3),
-    ISO15_HIGH_SPEED = (1 << 4),
-    ISO15_READ_RESPONSE = (1 << 5)
-} iso15_command_t;
-
-//-----------------------------------------------------------------------------
-// "hf 14a sim x", "hf mf sim x" attacks
+// "hf 14a sim -x", "hf mf sim -x" attacks
 //-----------------------------------------------------------------------------
 typedef struct {
     uint32_t cuid;
@@ -147,124 +174,5 @@ typedef struct {
         SECOND,
     } state;
 } PACKED nonces_t;
-
-//-----------------------------------------------------------------------------
-// ISO 7618  Smart Card
-//-----------------------------------------------------------------------------
-typedef struct {
-    uint8_t atr_len;
-    uint8_t atr[30];
-} PACKED smart_card_atr_t;
-
-typedef enum SMARTCARD_COMMAND {
-    SC_CONNECT = (1 << 0),
-    SC_NO_DISCONNECT = (1 << 1),
-    SC_RAW = (1 << 2),
-    SC_SELECT = (1 << 3),
-    SC_RAW_T0 = (1 << 4),
-} smartcard_command_t;
-
-//-----------------------------------------------------------------------------
-// FeliCa
-//-----------------------------------------------------------------------------
-// IDm  = ID manufacturer
-// mc = manufactureCode
-// mc1 mc2 u1 u2 u3 u4 u5 u6
-// PMm  = Product manufacturer
-// icCode =
-//    ic1 = ROM
-//    ic2 = IC
-// maximum response time =
-//    B3(request service)
-//    B4(request response)
-//    B5(authenticate)
-//    B6(read)
-//    B7(write)
-//    B8()
-
-// ServiceCode  2bytes  (access-rights)
-// FileSystem = 1 Block = 16 bytes
-typedef struct {
-    uint8_t IDm[8];
-    uint8_t code[2];
-    uint8_t uid[6];
-    uint8_t PMm[8];
-    uint8_t iccode[2];
-    uint8_t mrt[6];
-    uint8_t servicecode[2];
-} PACKED felica_card_select_t;
-
-typedef struct {
-    uint8_t sync[2];
-    uint8_t length[1];
-    uint8_t cmd_code[1];
-    uint8_t IDm[8];
-} PACKED felica_frame_response_t;
-
-typedef struct {
-    uint8_t status_flag1[1];
-    uint8_t status_flag2[1];
-} PACKED felica_status_flags_t;
-
-typedef struct {
-    felica_frame_response_t frame_response;
-    uint8_t node_number[1];
-    uint8_t node_key_versions[2];
-} PACKED felica_request_service_response_t;
-
-typedef struct {
-    felica_frame_response_t frame_response;
-    uint8_t mode[1];
-} PACKED felica_request_request_response_t;
-
-typedef struct {
-    felica_frame_response_t frame_response;
-    felica_status_flags_t status_flags;
-    uint8_t number_of_block[1];
-    uint8_t block_data[16];
-    uint8_t block_element_number[1];
-} PACKED felica_read_without_encryption_response_t;
-
-typedef struct {
-    felica_frame_response_t frame_response;
-    felica_status_flags_t status_flags;
-} PACKED felica_status_response_t;
-
-typedef struct {
-    felica_frame_response_t frame_response;
-    uint8_t number_of_systems[1];
-    uint8_t system_code_list[32];
-} PACKED felica_syscode_response_t;
-
-typedef struct {
-    felica_frame_response_t frame_response;
-    felica_status_flags_t status_flags;
-    uint8_t format_version[1];
-    uint8_t basic_version[2];
-    uint8_t number_of_option[1];
-    uint8_t option_version_list[4];
-} PACKED felica_request_spec_response_t;
-
-typedef struct {
-    felica_frame_response_t frame_response;
-    uint8_t m2c[8];
-    uint8_t m3c[8];
-} PACKED felica_auth1_response_t;
-
-typedef struct {
-    uint8_t code[1];
-    uint8_t IDtc[8];
-    uint8_t IDi[8];
-    uint8_t PMi[8];
-} PACKED felica_auth2_response_t;
-
-
-typedef enum FELICA_COMMAND {
-    FELICA_CONNECT = (1 << 0),
-    FELICA_NO_DISCONNECT = (1 << 1),
-    FELICA_RAW = (1 << 3),
-    FELICA_APPEND_CRC = (1 << 5),
-    FELICA_NO_SELECT = (1 << 6),
-} felica_command_t;
 
 #endif // _MIFARE_H_

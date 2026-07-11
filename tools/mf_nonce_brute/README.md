@@ -1,14 +1,14 @@
 mf_nonce_brute
 ==============
 
-Nested authentificated sector key recovery tool
+Nested auntenticated sector key recovery tool
 -----------------------------------------------
 
 Compatible tags:
 * Mifare Classic 1k (4k)
 * Mifare Plus in SL1 mode
 
-To recover keys to nested authentificated sectors you need a reader-card communication log. To get it use 
+To recover keys to nested auntenticated sectors you need a reader-card communication log. To get it use 
 hardware tools that able to sniff communication (for example Proxmark3 or HydraNFC).
 
 This enhanced version:  
@@ -34,10 +34,10 @@ TAG a3 76 dc df c1 42 e0 ee c6 75 a4 ca eb 0c da eb 46 a0  // 18 bytes = 16 byte
 
 -------Until this line we can recover key or decrypt communication with no troubles (see mfkey64 tool)--------------------------------
 
-TAG 52 6e af 8b                                            // nested auth encrypted tag nonce that we dont know
+TAG 52 6e af 8b                                            // nested auth encrypted tag nonce that we don't know
     8e 21 3a 29 a4 80 7e 02                                // nr_enc = nr^ks1, ar_enc = ar^ks2
 TAG b9 43 74 8d                                            // at_enc = at^ks3
-    e2 25 f8 32                                            // probably next command (actually is read block cmd, but we dont know it yet)
+    e2 25 f8 32                                            // probably next command (actually is read block cmd, but we don't know it yet)
 TAG 1f 26 82 8d 12 21 dd 42 c2 84 3e d0 26 7f 6b 2a 81 a9  // probably data
     ba 85 1d 36                                            // probably read cmd
 TAG 62 a8 78 69 ee 36 22 16 1c ff 4b 4e 69 cb 27 c2 e8 7e  // probably data
@@ -85,7 +85,7 @@ Example with parity (from this trace http://www.proxmark.org/forum/viewtopic.php
 ```
 =>
 ```
-./mf_nonce_brute 9c599b32 82a4166c 0000 a1e458ce 6eea41e0 0101 5cadf439 1001 3e709c8a
+./mf_nonce_brute 9c599b32 82a4166c 0000 a1e458ce 6eea41e0 0101 5cadf439 1001 8e0e5db9  
                  |        |        |    |        |        |    |        |    |
                  +UID     +nt_enc  |    +nr_enc  +ar_enc  |    +at_enc  |    +encrypted next cmd
                                    +nt_par_err            +at_par_err   +at_par_err
@@ -108,7 +108,7 @@ This one uses the encrypted tagnonce `nt`=`5a920d85` and the encrypted cmd `3e70
 ```
 Full output:
 ```
-$ ./mf_nonce_brute 9c599b32 5a920d85 1011 98d76b77 d6c6e870 0000 ca7e0b63 0111 3e709c8a
+./mf_nonce_brute 9c599b32 5a920d85 1011 98d76b77 d6c6e870 0000 ca7e0b63 0111 3e709c8a
 Mifare classic nested auth key recovery. Phase 1.
 -------------------------------------------------
 uid:            9c599b32

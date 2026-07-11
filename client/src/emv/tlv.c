@@ -1,56 +1,48 @@
-/*
- * libopenemv - a library to work with EMV family of smart cards
- * Copyright (C) 2012, 2015 Dmitry Eremin-Solenikov
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * https://github.com/lumag/emv-tools/blob/master/lib/tlv.c
- */
+//-----------------------------------------------------------------------------
+// Borrowed initially from https://github.com/lumag/emv-tools/
+// Copyright (C) 2012, 2015 Dmitry Eremin-Solenikov
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
+// libopenemv - a library to work with EMV family of smart cards
+//-----------------------------------------------------------------------------
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
 
 #include "tlv.h"
-
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
+#include <stdint.h>
 
-#define TLV_TAG_CLASS_MASK  0xc0
+
+#define TLV_TAG_CLASS_MASK  0xC0
 #define TLV_TAG_COMPLEX     0x20
-#define TLV_TAG_VALUE_MASK  0x1f
-#define TLV_TAG_VALUE_CONT  0x1f
+#define TLV_TAG_VALUE_MASK  0x1F
+#define TLV_TAG_VALUE_CONT  0x1F
 #define TLV_TAG_INVALID     0
 
 #define TLV_LEN_LONG        0x80
-#define TLV_LEN_MASK        0x7f
+#define TLV_LEN_MASK        0x7F
 #define TLV_LEN_INVALID     (~0)
 
 // http://radek.io/2012/11/10/magical-container_of-macro/
 //#define container_of(ptr, type, member) ({
 //  const typeof( ((type *)0)->member ) *__mptr = (ptr);
 //        (type *)( (char *)__mptr - offsetof(type,member) );})
-
-struct tlvdb {
-    struct tlv tag;
-    struct tlvdb *next;
-    struct tlvdb *parent;
-    struct tlvdb *children;
-};
-
-struct tlvdb_root {
-    struct tlvdb db;
-    size_t len;
-    unsigned char buf[0];
-};
 
 static tlv_tag_t tlv_parse_tag(const unsigned char **buf, size_t *len) {
     tlv_tag_t tag;
@@ -160,7 +152,7 @@ static struct tlvdb *tlvdb_parse_children(struct tlvdb *parent) {
     struct tlvdb *tlvdb, *first = NULL, *prev = NULL;
 
     while (left != 0) {
-        tlvdb = malloc(sizeof(*tlvdb));
+        tlvdb = calloc(1, sizeof(*tlvdb));
         if (prev)
             prev->next = tlvdb;
         else
@@ -189,7 +181,7 @@ struct tlvdb *tlvdb_parse(const unsigned char *buf, size_t len) {
     if (!len || !buf)
         return NULL;
 
-    root = malloc(sizeof(*root) + len);
+    root = calloc(1, sizeof(*root) + len);
     root->len = len;
     memcpy(root->buf, buf, len);
 
@@ -205,8 +197,7 @@ struct tlvdb *tlvdb_parse(const unsigned char *buf, size_t len) {
     return &root->db;
 
 err:
-    tlvdb_free(&root->db);
-
+    tlvdb_root_free(root);
     return NULL;
 }
 
@@ -215,22 +206,32 @@ struct tlvdb *tlvdb_parse_multi(const unsigned char *buf, size_t len) {
     const unsigned char *tmp;
     size_t left;
 
-    if (!len || !buf)
+    if (len == 0 || buf == NULL) {
         return NULL;
+    }
 
-    root = malloc(sizeof(*root) + len);
+    root = calloc(1, sizeof(*root) + len);
+    if (root == NULL) {
+        return NULL;
+    }
+
     root->len = len;
     memcpy(root->buf, buf, len);
 
     tmp = root->buf;
     left = len;
 
-    if (!tlvdb_parse_one(&root->db, NULL, &tmp, &left))
+    if (tlvdb_parse_one(&root->db, NULL, &tmp, &left) == false) {
         goto err;
+    }
 
     while (left != 0) {
-        struct tlvdb *db = malloc(sizeof(*db));
-        if (!tlvdb_parse_one(db, NULL, &tmp, &left)) {
+        struct tlvdb *db = calloc(1, sizeof(*db));
+        if (db == NULL) {
+            goto err;
+        }
+
+        if (tlvdb_parse_one(db, NULL, &tmp, &left) == false) {
             free(db);
             goto err;
         }
@@ -241,13 +242,55 @@ struct tlvdb *tlvdb_parse_multi(const unsigned char *buf, size_t len) {
     return &root->db;
 
 err:
-    tlvdb_free(&root->db);
-
+    tlvdb_root_free(root);
     return NULL;
 }
 
+bool tlvdb_parse_root(struct tlvdb_root *root) {
+    if (root == NULL || root->len == 0) {
+        return false;
+    }
+
+    const uint8_t *tmp;
+    size_t left;
+
+    tmp = root->buf;
+    left = root->len;
+    if (tlvdb_parse_one(&root->db, NULL, &tmp, &left) == true) {
+        if (left == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool tlvdb_parse_root_multi(struct tlvdb_root *root) {
+    if (root == NULL || root->len == 0) {
+        return false;
+    }
+
+    const uint8_t *tmp;
+    size_t left;
+
+    tmp = root->buf;
+    left = root->len;
+    if (tlvdb_parse_one(&root->db, NULL, &tmp, &left) == true) {
+        while (left > 0) {
+            struct tlvdb *db = calloc(1, sizeof(*db));
+            if (tlvdb_parse_one(db, NULL, &tmp, &left) == true) {
+                tlvdb_add(&root->db, db);
+            } else {
+                free(db);
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
 struct tlvdb *tlvdb_fixed(tlv_tag_t tag, size_t len, const unsigned char *value) {
-    struct tlvdb_root *root = malloc(sizeof(*root) + len);
+    struct tlvdb_root *root = calloc(1, sizeof(*root) + len);
 
     root->len = len;
     memcpy(root->buf, value, len);
@@ -261,7 +304,7 @@ struct tlvdb *tlvdb_fixed(tlv_tag_t tag, size_t len, const unsigned char *value)
 }
 
 struct tlvdb *tlvdb_external(tlv_tag_t tag, size_t len, const unsigned char *value) {
-    struct tlvdb_root *root = malloc(sizeof(*root));
+    struct tlvdb_root *root = calloc(1, sizeof(*root));
 
     root->len = 0;
 
@@ -276,8 +319,9 @@ struct tlvdb *tlvdb_external(tlv_tag_t tag, size_t len, const unsigned char *val
 void tlvdb_free(struct tlvdb *tlvdb) {
     struct tlvdb *next = NULL;
 
-    if (!tlvdb)
+    if (tlvdb == NULL) {
         return;
+    }
 
     for (; tlvdb; tlvdb = next) {
         next = tlvdb->next;
@@ -286,37 +330,58 @@ void tlvdb_free(struct tlvdb *tlvdb) {
     }
 }
 
+void tlvdb_root_free(struct tlvdb_root *root) {
+    if (root == NULL) {
+        return;
+    }
+    if (root->db.children) {
+        tlvdb_free(root->db.children);
+        root->db.children = NULL;
+    }
+    if (root->db.next) {
+        tlvdb_free(root->db.next);
+        root->db.next = NULL;
+    }
+    free(root);
+}
+
 struct tlvdb *tlvdb_find_next(struct tlvdb *tlvdb, tlv_tag_t tag) {
-    if (!tlvdb)
+    if (tlvdb == NULL) {
         return NULL;
+    }
 
     return tlvdb_find(tlvdb->next, tag);
 }
 
 struct tlvdb *tlvdb_find(struct tlvdb *tlvdb, tlv_tag_t tag) {
-    if (!tlvdb)
+    if (tlvdb == NULL) {
         return NULL;
+    }
 
     for (; tlvdb; tlvdb = tlvdb->next) {
-        if (tlvdb->tag.tag == tag)
+        if (tlvdb->tag.tag == tag) {
             return tlvdb;
+        }
     }
 
     return NULL;
 }
 
 struct tlvdb *tlvdb_find_full(struct tlvdb *tlvdb, tlv_tag_t tag) {
-    if (!tlvdb)
+    if (tlvdb == NULL) {
         return NULL;
+    }
 
     for (; tlvdb; tlvdb = tlvdb->next) {
-        if (tlvdb->tag.tag == tag)
+        if (tlvdb->tag.tag == tag) {
             return tlvdb;
+        }
 
         if (tlvdb->children) {
             struct tlvdb *ch = tlvdb_find_full(tlvdb->children, tag);
-            if (ch)
+            if (ch) {
                 return ch;
+            }
         }
     }
 
@@ -339,12 +404,14 @@ struct tlvdb *tlvdb_find_path(struct tlvdb *tlvdb, tlv_tag_t tag[]) {
 }
 
 void tlvdb_add(struct tlvdb *tlvdb, struct tlvdb *other) {
-    if (tlvdb == other)
+    if (tlvdb == other) {
         return;
+    }
 
     while (tlvdb->next) {
-        if (tlvdb->next == other)
+        if (tlvdb->next == other) {
             return;
+        }
 
         tlvdb = tlvdb->next;
     }
@@ -353,17 +420,21 @@ void tlvdb_add(struct tlvdb *tlvdb, struct tlvdb *other) {
 }
 
 void tlvdb_change_or_add_node_ex(struct tlvdb *tlvdb, tlv_tag_t tag, size_t len, const unsigned char *value, struct tlvdb **tlvdb_elm) {
+
     struct tlvdb *telm = tlvdb_find_full(tlvdb, tag);
     if (telm == NULL) {
         // new tlv element
         struct tlvdb *elm = tlvdb_fixed(tag, len, value);
         tlvdb_add(tlvdb, elm);
-        if (tlvdb_elm)
+        if (tlvdb_elm) {
             *tlvdb_elm = elm;
+        }
+
     } else {
         // the same tlv structure
-        if (telm->tag.tag == tag && telm->tag.len == len && !memcmp(telm->tag.value, value, len))
+        if (telm->tag.tag == tag && telm->tag.len == len && !memcmp(telm->tag.value, value, len)) {
             return;
+        }
 
         // replace tlv element
         struct tlvdb *tnewelm = tlvdb_fixed(tag, len, value);
@@ -382,8 +453,9 @@ void tlvdb_change_or_add_node_ex(struct tlvdb *tlvdb, tlv_tag_t tag, size_t len,
             // elm in root
             struct tlvdb *celm = tlvdb;
             // elm in child list of node
-            if (telm->parent && telm->parent->children)
+            if (telm->parent && telm->parent->children) {
                 celm = telm->parent->children;
+            }
 
             // find previous element
             for (; celm; celm = celm->next) {
@@ -403,7 +475,8 @@ void tlvdb_change_or_add_node_ex(struct tlvdb *tlvdb, tlv_tag_t tag, size_t len,
             *tlvdb_elm = tnewelm;
             tnewelm_linked = true;
         }
-        if (! tnewelm_linked) {
+
+        if (!tnewelm_linked) {
             tlvdb_free(tnewelm);
         }
     }
@@ -418,8 +491,9 @@ void tlvdb_change_or_add_node(struct tlvdb *tlvdb, tlv_tag_t tag, size_t len, co
 void tlvdb_visit(const struct tlvdb *tlvdb, tlv_cb cb, void *data, int level) {
     struct tlvdb *next = NULL;
 
-    if (!tlvdb)
+    if (tlvdb == NULL) {
         return;
+    }
 
     for (; tlvdb; tlvdb = next) {
         next = tlvdb->next;
@@ -429,12 +503,14 @@ void tlvdb_visit(const struct tlvdb *tlvdb, tlv_cb cb, void *data, int level) {
 }
 
 static const struct tlvdb *tlvdb_next(const struct tlvdb *tlvdb) {
-    if (tlvdb->children)
+    if (tlvdb->children) {
         return tlvdb->children;
+    }
 
     while (tlvdb) {
-        if (tlvdb->next)
+        if (tlvdb->next) {
             return tlvdb->next;
+        }
 
         tlvdb = tlvdb->parent;
     }
@@ -450,8 +526,9 @@ const struct tlv *tlvdb_get(const struct tlvdb *tlvdb, tlv_tag_t tag, const stru
 
 
     while (tlvdb) {
-        if (tlvdb->tag.tag == tag)
+        if (tlvdb->tag.tag == tag) {
             return &tlvdb->tag;
+        }
 
         tlvdb = tlvdb_next(tlvdb);
     }
@@ -486,7 +563,7 @@ unsigned char *tlv_encode(const struct tlv *tlv, size_t *len) {
     else
         size += 1;
 
-    data = malloc(size);
+    data = calloc(1, size);
     if (!data) {
         *len = 0;
         return NULL;
@@ -518,11 +595,13 @@ bool tlv_is_constructed(const struct tlv *tlv) {
 }
 
 bool tlv_equal(const struct tlv *a, const struct tlv *b) {
-    if (!a && !b)
+    if (a == NULL && b == NULL) {
         return true;
+    }
 
-    if (!a || !b)
+    if (a == NULL || b == NULL) {
         return false;
+    }
 
     return a->tag == b->tag && a->len == b->len && !memcmp(a->value, b->value, a->len);
 }
@@ -547,8 +626,9 @@ bool tlvdb_get_uint8(struct tlvdb *tlvRoot, tlv_tag_t tag, uint8_t *value) {
 bool tlv_get_uint8(const struct tlv *etlv, uint8_t *value) {
     *value = 0;
     if (etlv) {
-        if (etlv->len == 0)
+        if (etlv->len == 0) {
             return true;
+        }
 
         if (etlv->len == 1) {
             *value = etlv->value[0];
@@ -561,8 +641,9 @@ bool tlv_get_uint8(const struct tlv *etlv, uint8_t *value) {
 bool tlv_get_int(const struct tlv *etlv, int *value) {
     *value = 0;
     if (etlv) {
-        if (etlv->len == 0)
+        if (etlv->len == 0) {
             return true;
+        }
 
         if (etlv->len <= 4) {
             for (int i = 0; i < etlv->len; i++) {

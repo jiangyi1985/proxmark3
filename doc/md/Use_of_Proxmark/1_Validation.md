@@ -1,66 +1,60 @@
-## 1. Validating proxmark client functionality
+<a id="Top"></a>
+
+# 1. Validating Proxmark3 client functionality
+
+# Table of Contents
+- [1. Validating Proxmark3 client functionality](#1-validating-proxmark3-client-functionality)
+- [Table of Contents](#table-of-contents)
+    - [To get interactive help](#to-get-interactive-help)
+    - [First tests](#first-tests)
+    - [To quit the client](#to-quit-the-client)
+  - [Next steps](#next-steps)
+
+
 
 If all went well you should get some information about the firmware and memory usage as well as the prompt,  something like this.
 
 ```
-[=] Session log /home/iceman/.proxmark3/log_20200521.txt
-[=] Loading Preferences...
+[=] Session log /home/iceman/.proxmark3/logs/log_20230208.txt
 [+] loaded from JSON file /home/iceman/.proxmark3/preferences.json
-[=] Using UART port /dev/ttyS7
+[=] Using UART port /dev/ttyS3
 [=] Communicating with PM3 over USB-CDC
 
 
-██████╗ ███╗   ███╗ ████╗  
-██╔══██╗████╗ ████║   ══█║ 
-██████╔╝██╔████╔██║ ████╔╝ 
-██╔═══╝ ██║╚██╔╝██║   ══█║    iceman@icesql.net
-██║     ██║ ╚═╝ ██║ ████╔╝    https://github.com/rfidresearchgroup/proxmark3/
-╚═╝     ╚═╝     ╚═╝ ╚═══╝  Release v4.9237 - Ice Coffee
+  8888888b.  888b     d888  .d8888b.
+  888   Y88b 8888b   d8888 d88P  Y88b
+  888    888 88888b.d88888      .d88P
+  888   d88P 888Y88888P888     8888"
+  8888888P"  888 Y888P 888      "Y8b.
+  888        888  Y8P  888 888    888
+  888        888   "   888 Y88b  d88P
+  888        888       888  "Y8888P"    [ ☕ ]
 
 
- [ Proxmark3 RFID instrument ] 
+ [ Proxmark3 RFID instrument ]
 
- [ CLIENT ]
-  client: RRG/Iceman/master/v4.9237-2-g2cb19874 2020-05-21 22:00:00
-  compiled with GCC 9.3.0 OS:Linux ARCH:x86_64
+    MCU....... AT91SAM7S512 Rev A
+    Memory.... 512 Kb ( 66% used )
+
+    Client.... Iceman/master/v4.16191 2023-02-08 22:54:30
+    Bootrom... Iceman/master/v4.16191 2023-02-08 22:54:26
+    OS........ Iceman/master/v4.16191 2023-02-08 22:54:27
+    Target.... RDV4
  
- [ PROXMARK RDV4 ]
-  external flash:                  present 
-  smartcard reader:                present 
-
- [ PROXMARK RDV4 Extras ]
-  FPC USART for BT add-on support: absent 
-
- [ ARM ]
- bootrom: RRG/Iceman/master/v4.9237-2-g2cb19874 2020-05-21 22:00:10
-      os: RRG/Iceman/master/v4.9237-2-g2cb19874 2019-05-21 22:00:26
- compiled with GCC 8.3.1 20190703 (release) [gcc-8-branch revision 273027]
-
- [ FPGA ]
- LF image built for 2s30vq100 on 2020/02/22 at 12:51:14
- HF image built for 2s30vq100 on 2020/01/12 at 15:31:16
-
- [ Hardware ] 
-  --= uC: AT91SAM7S512 Rev B
-  --= Embedded Processor: ARM7TDMI
-  --= Nonvolatile Program Memory Size: 512K bytes, Used: 291382 bytes (56%) Free: 232906 bytes (44%)
-  --= Second Nonvolatile Program Memory Size: None
-  --= Internal SRAM Size: 64K bytes
-  --= Architecture Identifier: AT91SAM7Sxx Series
-  --= Nonvolatile Program Memory Type: Embedded Flash Memory
-
-
-[usb] pm3 --> 
+[usb] pm3 -->
 ```
 
 This `[usb] pm3 --> ` is the Proxmark3 interactive prompt.
 
 
 ### To get interactive help
+^[Top](#top)
 
 For basic help type `help`. Or for help on a set of sub commands type the command followed by `help`. For example `hf mf help`.
+All commands now implement `-h` or `--help` parameter to give basic instructions on how to use the command.
 
 ### First tests
+^[Top](#top)
 
 These commands will return some info about your Proxmark software and hardware status.
 ```
@@ -72,12 +66,15 @@ These commands will return some info about your Proxmark software and hardware s
 You are now ready to use your newly flashed proxmark3 device.  Many commands uses the `h` parameter to show a help text.
 
 ### To quit the client
+^[Top](#top)
+
 ```
 [usb] pm3 --> quit
 ```
-or simple press `CTRL-D`.
+or simple press `CTRL-D`  on an empty line.
 
 ## Next steps
+^[Top](#top)
 
 Some configuration steps are still needed.
 

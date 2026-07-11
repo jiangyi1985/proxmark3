@@ -1,9 +1,17 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2017 Merlok
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Crypto algorithms testing
 //-----------------------------------------------------------------------------
@@ -23,7 +31,7 @@
 #include "base64.h"
 #include "ctr_drbg.h"
 #include "entropy.h"
-#include "timing.h"
+//#include "timing.h" // Beware it requires adjustments for ProxSpace
 #include "crypto_test.h"
 #include "sda_test.h"
 #include "dda_test.h"
@@ -56,6 +64,7 @@ int ExecuteCryptoTests(bool verbose, bool ignore_time, bool include_slow_tests) 
     res = mbedtls_entropy_self_test(verbose);
     if (res && !ignore_time) TestFail = true;
 
+    /*
     // retry for CI (when resources too low)
     for (int i = 0; i < 3; i++) {
         res = mbedtls_timing_self_test(verbose);
@@ -64,6 +73,7 @@ int ExecuteCryptoTests(bool verbose, bool ignore_time, bool include_slow_tests) 
         PrintAndLogEx(WARNING, "Repeat timing test " _RED_("%d"), i + 1);
     }
     if (res && !ignore_time) TestFail = true;
+    */
 
     res = mbedtls_ctr_drbg_self_test(verbose);
     if (res) TestFail = true;
@@ -101,9 +111,9 @@ int ExecuteCryptoTests(bool verbose, bool ignore_time, bool include_slow_tests) 
     PrintAndLogEx(INFO, "--------------------------");
 
     if (TestFail)
-        PrintAndLogEx(FAILED, "\tTest(s) [ %s ]", _RED_("fail"));
+        PrintAndLogEx(FAILED, "Tests ( %s )", _RED_("fail"));
     else
-        PrintAndLogEx(SUCCESS, "\tTest(s) [ %s ]", _GREEN_("ok"));
+        PrintAndLogEx(SUCCESS, "Tests ( %s )", _GREEN_("ok"));
 
     return TestFail;
 }

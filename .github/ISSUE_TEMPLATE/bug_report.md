@@ -8,13 +8,13 @@ assignees: ''
 ---
 
 ***Things to try before submitting bug report***
-read the [troubleshooting guide](/doc/md/Installation_Instructions/Troubleshooting.md)
+read the [troubleshooting guide](https://github.com/RfidResearchGroup/proxmark3/blob/master/doc/md/Installation_Instructions/Troubleshooting.md)
 
 ***Compilation problems***
 Try compiling with verbose.  `make VERBOSE=1` with main makefile or `make V=1` with cmake.
 
 ***flashing problems***
-Have you followed the instructions properly?  ie,  flashed bootrom seperately first if you are going from Offical repo to RRG/Iceman repo.
+Have you followed the instructions properly?  ie,  flashed bootrom seperately first if you are going from Offical repo to Iceman repo.
 
 
 -

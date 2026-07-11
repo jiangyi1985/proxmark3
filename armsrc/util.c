@@ -1,9 +1,18 @@
 //-----------------------------------------------------------------------------
-// Jonathan Westhues, Sept 2005
+// Copyright (C) Jonathan Westhues, Sept 2005
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Utility functions used in many places, not specific to any piece of code.
 //-----------------------------------------------------------------------------
@@ -22,66 +31,109 @@ size_t nbytes(size_t nbits) {
 }
 
 //convert hex digit to integer
-uint8_t hex2int(char hexchar) {
-    switch (hexchar) {
+uint8_t hex2int(char x) {
+    switch (x) {
         case '0':
             return 0;
-            break;
         case '1':
             return 1;
-            break;
         case '2':
             return 2;
-            break;
         case '3':
             return 3;
-            break;
         case '4':
             return 4;
-            break;
         case '5':
             return 5;
-            break;
         case '6':
             return 6;
-            break;
         case '7':
             return 7;
-            break;
         case '8':
             return 8;
-            break;
         case '9':
             return 9;
-            break;
         case 'a':
         case 'A':
             return 10;
-            break;
         case 'b':
         case 'B':
             return 11;
-            break;
         case 'c':
         case 'C':
             return 12;
-            break;
         case 'd':
         case 'D':
             return 13;
-            break;
         case 'e':
         case 'E':
             return 14;
-            break;
         case 'f':
         case 'F':
             return 15;
-            break;
         default:
             return 0;
     }
 }
+
+/*
+The following methods comes from Rfidler sourcecode.
+https://github.com/ApertureLabsLtd/RFIDler/blob/master/firmware/Pic32/RFIDler.X/src/
+*/
+// convert hex to sequence of 0/1 bit values
+// returns number of bits converted
+int hex2binarray(char *target, char *source) {
+    return hex2binarray_n(target, source, strlen(source));
+}
+
+int hex2binarray_n(char *target, const char *source, int sourcelen) {
+    int count = 0;
+
+    // process 4 bits (1 hex digit) at a time
+    while (sourcelen--) {
+
+        char x = *(source++);
+
+        *(target++) = (x >> 7) & 1;
+        *(target++) = (x >> 6) & 1;
+        *(target++) = (x >> 5) & 1;
+        *(target++) = (x >> 4) & 1;
+        *(target++) = (x >> 3) & 1;
+        *(target++) = (x >> 2) & 1;
+        *(target++) = (x >> 1) & 1;
+        *(target++) = (x & 1);
+
+        count += 8;
+    }
+    return count;
+}
+
+int binarray2hex(const uint8_t *bs, int bs_len, uint8_t *hex) {
+
+    int count = 0;
+    int byte_index = 0;
+
+    // Clear output buffer
+    memset(hex, 0, bs_len >> 3);
+
+    for (int i = 0; i < bs_len; i++) {
+
+        // Set the appropriate bit in hex
+        if (bs[i] == 1) {
+            hex[byte_index] |= (1 << (7 - (count % 8)));
+        }
+
+        count++;
+
+        // Move to the next byte if 8 bits have been filled
+        if (count % 8 == 0) {
+            byte_index++;
+        }
+    }
+
+    return count;
+}
+
 
 void LEDsoff(void) {
     LED_A_OFF();
@@ -189,13 +241,13 @@ int BUTTON_CLICKED(int ms) {
     // timer counts in 21.3us increments (1024/48MHz)
     // WARNING: timer can't measure more than 1.39s (21.3us * 0xffff)
     if (ms > 1390) {
-        if (DBGLEVEL >= DBG_ERROR) Dbprintf(_RED_("Error, BUTTON_CLICKED called with %i > 1390"), ms);
+        if (g_dbglevel >= DBG_ERROR) Dbprintf(_RED_("Error, BUTTON_CLICKED called with %i > 1390"), ms);
         ms = 1390;
     }
     int ticks = ((MCK / 1000) * (ms ? ms : 1000)) >> 10;
 
     // If we're not even pressed, forget about it!
-    if (!BUTTON_PRESS())
+    if (BUTTON_PRESS() == false)
         return BUTTON_NO_CLICK;
 
     // Borrow a PWM unit for my real-time clock
@@ -214,7 +266,7 @@ int BUTTON_CLICKED(int ms) {
         // We haven't let off the button yet
         if (!letoff) {
             // We just let it off!
-            if (!BUTTON_PRESS()) {
+            if (BUTTON_PRESS() == false) {
                 letoff = 1;
 
                 // reset our timer for 500ms
@@ -252,15 +304,16 @@ int BUTTON_HELD(int ms) {
     // timer counts in 21.3us increments (1024/48MHz)
     // WARNING: timer can't measure more than 1.39s (21.3us * 0xffff)
     if (ms > 1390) {
-        if (DBGLEVEL >= DBG_ERROR) Dbprintf(_RED_("Error, BUTTON_HELD called with %i > 1390"), ms);
+        if (g_dbglevel >= DBG_ERROR) Dbprintf(_RED_("Error, BUTTON_HELD called with %i > 1390"), ms);
         ms = 1390;
     }
     // If button is held for one second
     int ticks = (48000 * (ms ? ms : 1000)) >> 10;
 
     // If we're not even pressed, forget about it!
-    if (!BUTTON_PRESS())
+    if (BUTTON_PRESS() == false) {
         return BUTTON_NO_CLICK;
+    }
 
     // Borrow a PWM unit for my real-time clock
     AT91C_BASE_PWMC->PWMC_ENA = PWM_CHANNEL(0);
@@ -275,12 +328,14 @@ int BUTTON_HELD(int ms) {
         uint16_t now = AT91C_BASE_PWMC_CH0->PWMC_CCNTR;
 
         // As soon as our button let go, we didn't hold long enough
-        if (!BUTTON_PRESS())
+        if (BUTTON_PRESS() == false) {
             return BUTTON_SINGLE_CLICK;
+        }
 
         // Have we waited the full second?
-        else if (now == (uint16_t)(start + ticks))
+        else if (now == (uint16_t)(start + ticks)) {
             return BUTTON_HOLD;
+        }
 
         WDT_HIT();
     }
@@ -289,10 +344,54 @@ int BUTTON_HELD(int ms) {
     return BUTTON_ERROR;
 }
 
+// This function returns false if no data is available or
+// the USB connection is invalid.
 bool data_available(void) {
 #ifdef WITH_FPC_USART_HOST
     return usb_poll_validate_length() || (usart_rxdata_available() > 0);
 #else
     return usb_poll_validate_length();
 #endif
+}
+
+// This function doesn't check if the USB connection is valid.
+// In most of the cases, you should use data_available() unless
+// the timing is critical.
+bool data_available_fast(void) {
+#ifdef WITH_FPC_USART_HOST
+    return usb_available_length() || (usart_rxdata_available() > 0);
+#else
+    return usb_available_length();
+#endif
+}
+
+uint32_t flash_size_from_cidr(uint32_t cidr) {
+    uint8_t nvpsiz = (cidr & 0xF00) >> 8;
+    switch (nvpsiz) {
+        case 0:
+            return 0;
+        case 1:
+            return 8 * 1024;
+        case 2:
+            return 16 * 1024;
+        case 3:
+            return 32 * 1024;
+        case 5:
+            return 64 * 1024;
+        case 7:
+            return 128 * 1024;
+        case 9:
+            return 256 * 1024;
+        case 10:
+            return 512 * 1024;
+        case 12:
+            return 1024 * 1024;
+        case 14:
+        default: // for 'reserved' values, guess 2MB
+            return 2048 * 1024;
+    }
+}
+
+uint32_t get_flash_size(void) {
+    return flash_size_from_cidr(*AT91C_DBGU_CIDR);
 }

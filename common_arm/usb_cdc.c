@@ -1,36 +1,21 @@
-/*
- * at91sam7s USB CDC device implementation
- *
- * Copyright (c) 2012, Roel Verdult
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * 1. Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the copyright holders nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ''AS IS'' AND ANY
- * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * based on the "Basic USB Example" from ATMEL (doc6123.pdf)
- *
- * @file usb_cdc.c
- * @brief
- */
+//-----------------------------------------------------------------------------
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
+// at91sam7s USB CDC device implementation
+// based on the "Basic USB Example" from ATMEL (doc6123.pdf)
+//-----------------------------------------------------------------------------
 
 #include "usb_cdc.h"
 #include "proxmark3_arm.h"
@@ -52,10 +37,7 @@ AT91SAM7S256  USB Device Port
 #define AT91C_EP_IN             2  // cfg bulk in
 #define AT91C_EP_NOTIFY         3  // cfg cdc notification interrup
 
-#define AT91C_EP_CONTROL_SIZE   8
-#define AT91C_EP_OUT_SIZE       64
-#define AT91C_EP_IN_SIZE        64
-
+// The endpoint size is defined in usb_cdc.h
 
 // Section: USB Descriptors
 #define USB_DESCRIPTOR_DEVICE           0x01    // DescriptorType for a Device Descriptor.
@@ -129,7 +111,8 @@ AT91SAM7S256  USB Device Port
 #define SET_LINE_CODING               0x2021
 #define SET_CONTROL_LINE_STATE        0x2221
 
-AT91PS_UDP pUdp = AT91C_BASE_UDP;
+static bool isAsyncRequestFinished = false;
+static AT91PS_UDP pUdp = AT91C_BASE_UDP;
 static uint8_t btConfiguration = 0;
 static uint8_t btConnection    = 0;
 static uint8_t btReceiveBank   = AT91C_UDP_RX_DATA_BK0;
@@ -142,7 +125,7 @@ static const char devDescriptor[] = {
     2,      // Device Class:    Communication Device Class
     0,      // Device Subclass: CDC class sub code ACM [ice 0x02 = win10 virtual comport ]
     0,      // Device Protocol: CDC Device protocol (unused)
-    AT91C_EP_CONTROL_SIZE,      // MaxPacketSize0
+    AT91C_USB_EP_CONTROL_SIZE,      // MaxPacketSize0
     0xc4, 0x9a, // Vendor ID  [0x9ac4 = J. Westhues]
     0x8f, 0x4b, // Product ID [0x4b8f = Proxmark-3 RFID Instrument]
     0x00, 0x01, // BCD Device release number (1.00)
@@ -232,7 +215,7 @@ static const char cfgDescriptor[] = {
     USB_DESCRIPTOR_ENDPOINT,     // Descriptor Type
     _EP03_IN,                    // EndpointAddress:   Endpoint 03 - IN
     _INTERRUPT,                  // Attributes
-    AT91C_EP_CONTROL_SIZE, 0x00, // MaxPacket Size:    EP0 - 8
+    AT91C_USB_EP_CONTROL_SIZE, 0x00, // MaxPacket Size:    EP0 - 8
     0xFF,                        // Interval polling
 
 
@@ -253,7 +236,7 @@ static const char cfgDescriptor[] = {
     USB_DESCRIPTOR_ENDPOINT,     // Descriptor Type
     _EP01_OUT,                   // Endpoint Address:    Endpoint 01 - OUT
     _BULK,                       // Attributes:          BULK
-    AT91C_EP_OUT_SIZE, 0x00,     // MaxPacket Size:      64 bytes
+    AT91C_USB_EP_OUT_SIZE, 0x00,     // MaxPacket Size:      64 bytes
     0,                           // Interval:            ignored for bulk
 
     /* Endpoint descriptor */
@@ -261,7 +244,7 @@ static const char cfgDescriptor[] = {
     USB_DESCRIPTOR_ENDPOINT,     // Descriptor Type
     _EP02_IN,                    // Endpoint Address:    Endpoint 02 - IN
     _BULK,                       // Attribute:           BULK
-    AT91C_EP_IN_SIZE, 0x00,      // MaxPacket Size:      64 bytes
+    AT91C_USB_EP_IN_SIZE, 0x00,      // MaxPacket Size:      64 bytes
     0                            // Interval:            ignored for bulk
 };
 
@@ -381,11 +364,60 @@ static const char StrProduct[] = {
     'p', 0, 'r', 0, 'o', 0, 'x', 0, 'm', 0, 'a', 0, 'r', 0, 'k', 0, '3', 0
 };
 
+#ifndef WITH_FLASH
 static const char StrSerialNumber[] = {
     14,         // Length
     0x03,       // Type is string
     'i', 0, 'c', 0, 'e', 0, 'm', 0, 'a', 0, 'n', 0
 };
+#else // WITH_FLASH is defined
+
+// Manually calculated size of descriptor with unique ID:
+// offset  0, lengt h 1: total length field
+// offset  1, length  1: descriptor type field
+// offset  2, length 12: 6x unicode chars (original string)
+// offset 14, length  4: 2x unicode chars (underscores)      [[ to avoid descriptor being (size % 8) == 0, OS bug workaround ]]
+// offset 18, length 32: 16x unicode chars (8-byte serial as hex characters)
+// ============================
+// total: 50 bytes
+#define USB_STRING_DESCRIPTOR_SERIAL_NUMBER_LENGTH  50
+char StrSerialNumber[] = {
+    14,         // Length is initially identical to non-unique version ... The length updated at boot, if unique serial is available
+    0x03,       // Type is string
+    'i', 0, 'c', 0, 'e', 0, 'm', 0, 'a', 0, 'n', 0,
+    '_', 0, '_', 0,
+    'x', 0, 'x', 0, 'x', 0, 'x', 0, 'x', 0, 'x', 0, 'x', 0, 'x', 0,
+    'x', 0, 'x', 0, 'x', 0, 'x', 0, 'x', 0, 'x', 0, 'x', 0, 'x', 0,
+};
+void usb_update_serial(uint64_t newSerialNumber) {
+    static bool configured = false; // TODO: enable by setting to false here...
+    if (configured) {
+        return;
+    }
+    // run this only once per boot... even if it fails to find serial number
+    configured = true;
+    // reject serial number if all-zero or all-ones
+    if ((newSerialNumber == 0x0000000000000000) || (newSerialNumber == 0xFFFFFFFFFFFFFFFF)) {
+        return;
+    }
+    // Descriptor is, effectively, initially identical to non-unique serial
+    // number because it reports the shorter length in the first byte.
+    // Convert uniqueID's eight bytes to 16 unicode characters in the
+    // descriptor and, finally, update the descriptor's length, which
+    // causes the serial number to become visible.
+    for (uint8_t i = 0; i < 8; i++) {
+        // order of nibbles chosen to match display order from `hw status`
+        uint8_t nibble1 = (newSerialNumber >> ((8 * i) + 4)) & 0xFu; // bitmasks [0xF0, 0xF000, 0xF00000, ... 0xF000000000000000]
+        uint8_t nibble2 = (newSerialNumber >> ((8 * i) + 0)) & 0xFu; // bitmasks [0x0F, 0x0F00, 0x0F0000, ... 0x0F00000000000000]
+        char c1 = nibble1 < 10 ? '0' + nibble1 : 'A' + (nibble1 - 10);
+        char c2 = nibble2 < 10 ? '0' + nibble2 : 'A' + (nibble2 - 10);
+        StrSerialNumber[18 + (4 * i) + 0] = c1; // [ 18, 22, .., 42, 46 ]
+        StrSerialNumber[18 + (4 * i) + 2] = c2; // [ 20, 24, .., 44, 48 ]
+    }
+    StrSerialNumber[0] = USB_STRING_DESCRIPTOR_SERIAL_NUMBER_LENGTH;
+}
+#endif
+
 
 // size includes their own field.
 static const char StrMS_OSDescriptor[] = {
@@ -442,7 +474,7 @@ typedef struct {
     uint8_t DataBits;
 } AT91S_CDC_LINE_CODING, *AT91PS_CDC_LINE_CODING;
 
-AT91S_CDC_LINE_CODING line = { // purely informative, actual values don't matter
+static AT91S_CDC_LINE_CODING line = { // purely informative, actual values don't matter
     USART_BAUD_RATE, // baudrate
     0,               // 1 Stop Bit
     0,               // None Parity
@@ -600,8 +632,15 @@ bool usb_check(void) {
 }
 
 bool usb_poll(void) {
-    if (!usb_check()) return false;
+    if (usb_check() == false) {
+        return false;
+    }
+
     return (pUdp->UDP_CSR[AT91C_EP_OUT] & btReceiveBank);
+}
+
+inline uint16_t usb_available_length(void) {
+    return (((pUdp->UDP_CSR[AT91C_EP_OUT] & AT91C_UDP_RXBYTECNT) >> 16) & 0x7FF);
 }
 
 /**
@@ -613,9 +652,16 @@ bool usb_poll(void) {
     bug.
 **/
 bool usb_poll_validate_length(void) {
-    if (!usb_check()) return false;
-    if (!(pUdp->UDP_CSR[AT91C_EP_OUT] & btReceiveBank)) return false;
-    return ((pUdp->UDP_CSR[AT91C_EP_OUT] & AT91C_UDP_RXBYTECNT) >> 16) >  0;
+
+    if (usb_check() == false) {
+        return false;
+    }
+
+    if (!(pUdp->UDP_CSR[AT91C_EP_OUT] & btReceiveBank)) {
+        return false;
+    }
+
+    return (((pUdp->UDP_CSR[AT91C_EP_OUT] & AT91C_UDP_RXBYTECNT) >> 16) > 0);
 }
 
 /*
@@ -626,91 +672,134 @@ bool usb_poll_validate_length(void) {
 */
 uint32_t usb_read(uint8_t *data, size_t len) {
 
-    if (len == 0) return 0;
+    if (len == 0) {
+        return 0;
+    }
 
     uint8_t bank = btReceiveBank;
-    uint32_t packetSize, nbBytesRcv = 0;
-    uint32_t time_out = 0;
+    uint16_t packetSize, nbBytesRcv = 0;
+    uint16_t time_out = 0;
 
     while (len)  {
-        if (!usb_check()) break;
+        if (usb_check() == false) {
+            break;
+        }
 
         if (pUdp->UDP_CSR[AT91C_EP_OUT] & bank) {
 
-            packetSize = (pUdp->UDP_CSR[AT91C_EP_OUT] & AT91C_UDP_RXBYTECNT) >> 16;
+            packetSize = (((pUdp->UDP_CSR[AT91C_EP_OUT] & AT91C_UDP_RXBYTECNT) >> 16) & 0x7FF);
             packetSize = MIN(packetSize, len);
             len -= packetSize;
-            while (packetSize--)
+
+            while (packetSize--) {
                 data[nbBytesRcv++] = pUdp->UDP_FDR[AT91C_EP_OUT];
+            }
 
             // flip bank
             UDP_CLEAR_EP_FLAGS(AT91C_EP_OUT, bank)
 
-            if (bank == AT91C_UDP_RX_DATA_BK0)
+            if (bank == AT91C_UDP_RX_DATA_BK0) {
                 bank = AT91C_UDP_RX_DATA_BK1;
-            else
+            } else {
                 bank = AT91C_UDP_RX_DATA_BK0;
+            }
         }
-        if (time_out++ == 0x1fff) break;
+
+        if (time_out++ == 0x1FFF) {
+            break;
+        }
     }
 
     btReceiveBank = bank;
     return nbBytesRcv;
 }
 
-static uint8_t usb_read_ng_buffer[64];
-static size_t usb_read_ng_bufoff = 0;
-static size_t usb_read_ng_buflen = 0;
+static uint8_t usb_read_ng_buffer[64] = {0};
+static uint8_t usb_read_ng_bufoffset = 0;
+static uint8_t usb_read_ng_buflen = 0;
 
 uint32_t usb_read_ng(uint8_t *data, size_t len) {
 
-    if (len == 0) return 0;
+    if (len == 0) {
+        return 0;
+    }
 
     uint8_t bank = btReceiveBank;
-    uint32_t packetSize, nbBytesRcv = 0;
-    uint32_t time_out = 0;
+    uint16_t packetSize, nbBytesRcv = 0;
+    uint16_t time_out = 0;
 
     // take first from local buffer
     if (len <= usb_read_ng_buflen) {
-        for (uint32_t i = 0; i < len; i++)
-            data[nbBytesRcv++] = usb_read_ng_buffer[usb_read_ng_bufoff + i];
+
+        // if local buffer has all data
+
+        for (uint8_t i = 0; i < len; i++) {
+            data[nbBytesRcv++] = usb_read_ng_buffer[usb_read_ng_bufoffset + i];
+        }
+
         usb_read_ng_buflen -= len;
-        if (usb_read_ng_buflen == 0)
-            usb_read_ng_bufoff = 0;
-        else
-            usb_read_ng_bufoff += len;
+
+        if (usb_read_ng_buflen == 0) {
+            usb_read_ng_bufoffset = 0;
+        } else {
+            usb_read_ng_bufoffset += len;
+        }
+
         return nbBytesRcv;
+
     } else {
-        for (uint32_t i = 0; i < usb_read_ng_buflen; i++)
-            data[nbBytesRcv++] = usb_read_ng_buffer[usb_read_ng_bufoff + i];
+
+        // take all data from local buffer,  then read from usb
+
+        for (uint8_t i = 0; i < usb_read_ng_buflen; i++) {
+            data[nbBytesRcv++] = usb_read_ng_buffer[usb_read_ng_bufoffset + i];
+        }
+
         len -= usb_read_ng_buflen;
         usb_read_ng_buflen = 0;
-        usb_read_ng_bufoff = 0;
+        usb_read_ng_bufoffset = 0;
     }
 
+
     while (len)  {
-        if (!usb_check()) break;
+
+        if (usb_check() == false) {
+            break;
+        }
 
         if ((pUdp->UDP_CSR[AT91C_EP_OUT] & bank)) {
 
-            uint32_t available = (pUdp->UDP_CSR[AT91C_EP_OUT] & AT91C_UDP_RXBYTECNT) >> 16;
+            uint16_t available = (((pUdp->UDP_CSR[AT91C_EP_OUT] & AT91C_UDP_RXBYTECNT) >> 16) & 0x7FF);
+
             packetSize = MIN(available, len);
             available -= packetSize;
             len -= packetSize;
-            while (packetSize--)
+
+            while (packetSize--) {
                 data[nbBytesRcv++] = pUdp->UDP_FDR[AT91C_EP_OUT];
+            }
+
             // fill the local buffer with the remaining bytes
-            for (uint32_t i = 0; i < available; i++)
+            for (uint16_t i = 0; i < available; i++) {
                 usb_read_ng_buffer[i] = pUdp->UDP_FDR[AT91C_EP_OUT];
+            }
+
+            // update number of available bytes in local bytes
             usb_read_ng_buflen = available;
+
             // flip bank
             UDP_CLEAR_EP_FLAGS(AT91C_EP_OUT, bank)
-            if (bank == AT91C_UDP_RX_DATA_BK0)
+
+            if (bank == AT91C_UDP_RX_DATA_BK0) {
                 bank = AT91C_UDP_RX_DATA_BK1;
-            else
+            } else {
                 bank = AT91C_UDP_RX_DATA_BK0;
+            }
         }
-        if (time_out++ == 0x1fff) break;
+
+        if (time_out++ == 0x1FFF) {
+            break;
+        }
     }
 
     btReceiveBank = bank;
@@ -725,29 +814,35 @@ uint32_t usb_read_ng(uint8_t *data, size_t len) {
 */
 int usb_write(const uint8_t *data, const size_t len) {
 
-    if (!len) return PM3_EINVARG;
-    if (!usb_check()) return PM3_EIO;
+    if (len == 0) {
+        return PM3_EINVARG;
+    }
+
+    if (usb_check() == false) {
+        return PM3_EIO;
+    }
 
     // can we write?
-    if ((pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXPKTRDY) != 0) return PM3_EIO;
+    if ((pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXPKTRDY) != 0) {
+        return PM3_EIO;
+    }
 
     size_t length = len;
     uint32_t cpt = 0;
 
-
     // send first chunk
-    cpt = MIN(length, AT91C_EP_IN_SIZE);
+    cpt = MIN(length, AT91C_USB_EP_IN_SIZE);
     length -= cpt;
     while (cpt--) {
         pUdp->UDP_FDR[AT91C_EP_IN] = *data++;
     }
 
     UDP_SET_EP_FLAGS(AT91C_EP_IN, AT91C_UDP_TXPKTRDY);
-    while (pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXPKTRDY) {};
+    while (!(pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXPKTRDY)) {};
 
     while (length) {
         // Send next chunk
-        cpt = MIN(length, AT91C_EP_IN_SIZE);
+        cpt = MIN(length, AT91C_USB_EP_IN_SIZE);
         length -= cpt;
         while (cpt--) {
             pUdp->UDP_FDR[AT91C_EP_IN] = *data++;
@@ -756,27 +851,31 @@ int usb_write(const uint8_t *data, const size_t len) {
         // Wait for previous chunk to be sent
         // (iceman) when is the bankswapping done?
         while (!(pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXCOMP)) {
-            if (!usb_check()) return PM3_EIO;
+            if (usb_check() == false) {
+                return PM3_EIO;
+            }
         }
 
         UDP_CLEAR_EP_FLAGS(AT91C_EP_IN, AT91C_UDP_TXCOMP);
         while (pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXCOMP) {};
 
         UDP_SET_EP_FLAGS(AT91C_EP_IN, AT91C_UDP_TXPKTRDY);
-        while (pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXPKTRDY) {};
+        while (!(pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXPKTRDY)) {};
     }
 
     // Wait for the end of transfer
     while (!(pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXCOMP)) {
-        if (!usb_check()) return PM3_EIO;
+        if (usb_check() == false) {
+            return PM3_EIO;
+        }
     }
 
     UDP_CLEAR_EP_FLAGS(AT91C_EP_IN, AT91C_UDP_TXCOMP);
     while (pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXCOMP) {};
 
 
-    if (len % AT91C_EP_IN_SIZE == 0) {
-
+    if (len % AT91C_USB_EP_IN_SIZE == 0) {
+        // like AT91F_USB_SendZlp(), in non ping-pong mode
         UDP_SET_EP_FLAGS(AT91C_EP_IN, AT91C_UDP_TXPKTRDY);
         while (!(pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXCOMP)) {};
 
@@ -784,6 +883,125 @@ int usb_write(const uint8_t *data, const size_t len) {
         while (pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXCOMP) {};
     }
 
+    return PM3_SUCCESS;
+}
+
+/*
+ *----------------------------------------------------------------------------
+ * \fn     async_usb_write_start
+ * \brief  Start async write process
+ * \return PM3_EIO if USB is invalid, PM3_SUCCESS if it is ready for write
+ *
+ * This function checks if the USB is connected, and wait until the FIFO
+ * is ready to be filled.
+ *
+ * Warning: usb_write() should not be called between
+ * async_usb_write_start() and async_usb_write_stop().
+ *----------------------------------------------------------------------------
+*/
+int async_usb_write_start(void) {
+
+    if (usb_check() == false) {
+        return PM3_EIO;
+    }
+
+    while (pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXPKTRDY) {
+        if (usb_check() == false) {
+            return PM3_EIO;
+        }
+    }
+
+    isAsyncRequestFinished = false;
+    return PM3_SUCCESS;
+}
+
+/*
+ *----------------------------------------------------------------------------
+ * \fn    async_usb_write_pushByte
+ * \brief Push one byte to the FIFO of IN endpoint (time-critical)
+ *
+ * This function simply push a byte to the FIFO of IN endpoint.
+ * The FIFO size is AT91C_USB_EP_IN_SIZE. Make sure this function is not called
+ * over AT91C_USB_EP_IN_SIZE times between each async_usb_write_requestWrite().
+ *----------------------------------------------------------------------------
+*/
+inline void async_usb_write_pushByte(uint8_t data) {
+    pUdp->UDP_FDR[AT91C_EP_IN] = data;
+    isAsyncRequestFinished = false;
+}
+
+/*
+ *----------------------------------------------------------------------------
+ * \fn     async_usb_write_requestWrite
+ * \brief  Request a write operation (time-critical)
+ * \return false if the last write request is not finished, true if success
+ *
+ * This function requests a write operation from FIFO to the USB bus,
+ * and switch the internal banks of FIFO. It doesn't wait for the end of
+ * transmission from FIFO to the USB bus.
+ *
+ * Note: This function doesn't check if the usb is valid, as it is
+ * time-critical.
+ *----------------------------------------------------------------------------
+*/
+inline bool async_usb_write_requestWrite(void) {
+
+    // check if last request is finished
+    if (pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXPKTRDY) {
+        return false;
+    }
+
+    // clear transmission completed flag
+    UDP_CLEAR_EP_FLAGS(AT91C_EP_IN, AT91C_UDP_TXCOMP);
+    while (pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXCOMP) {};
+
+    // start of transmission
+    UDP_SET_EP_FLAGS(AT91C_EP_IN, AT91C_UDP_TXPKTRDY);
+
+    // hack: no need to wait if UDP_CSR and UDP_FDR are not used immediately.
+    // while (!(pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXPKTRDY)) {};
+    isAsyncRequestFinished = true;
+    return true;
+}
+
+/*
+ *----------------------------------------------------------------------------
+ * \fn     async_usb_write_stop
+ * \brief  Stop async write process
+ * \return PM3_EIO if USB is invalid, PM3_SUCCESS if data is written
+ *
+ * This function makes sure the data left in the FIFO is written to the
+ * USB bus.
+ *
+ * Warning: usb_write() should not be called between
+ * async_usb_write_start() and async_usb_write_stop().
+ *----------------------------------------------------------------------------
+*/
+int async_usb_write_stop(void) {
+    // Wait for the end of transfer
+    while (pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXPKTRDY) {
+        if (usb_check() == false) {
+            return PM3_EIO;
+        }
+    }
+
+    // clear transmission completed flag
+    UDP_CLEAR_EP_FLAGS(AT91C_EP_IN, AT91C_UDP_TXCOMP);
+    while (pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXCOMP) {};
+
+    // FIFO is not empty, request a write in non-ping-pong mode
+    if (isAsyncRequestFinished == false) {
+        UDP_SET_EP_FLAGS(AT91C_EP_IN, AT91C_UDP_TXPKTRDY);
+
+        while (!(pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXCOMP)) {
+            if (usb_check() == false) {
+                return PM3_EIO;
+            }
+        }
+
+        UDP_CLEAR_EP_FLAGS(AT91C_EP_IN, AT91C_UDP_TXCOMP);
+        while (pUdp->UDP_CSR[AT91C_EP_IN] & AT91C_UDP_TXCOMP) {};
+    }
     return PM3_SUCCESS;
 }
 
@@ -797,15 +1015,16 @@ void AT91F_USB_SendData(AT91PS_UDP pudp, const char *pData, uint32_t length) {
     AT91_REG csr;
 
     do {
-        uint32_t cpt = MIN(length, AT91C_EP_CONTROL_SIZE);
+        uint32_t cpt = MIN(length, AT91C_USB_EP_CONTROL_SIZE);
         length -= cpt;
 
-        while (cpt--)
+        while (cpt--) {
             pudp->UDP_FDR[AT91C_EP_CONTROL] = *pData++;
+        }
 
         if (pudp->UDP_CSR[AT91C_EP_CONTROL] & AT91C_UDP_TXCOMP) {
             UDP_CLEAR_EP_FLAGS(AT91C_EP_CONTROL, AT91C_UDP_TXCOMP);
-            while (pudp->UDP_CSR[AT91C_EP_CONTROL] & AT91C_UDP_TXCOMP);
+            while (pudp->UDP_CSR[AT91C_EP_CONTROL] & AT91C_UDP_TXCOMP) {};
         }
 
         UDP_SET_EP_FLAGS(AT91C_EP_CONTROL, AT91C_UDP_TXPKTRDY);
@@ -824,7 +1043,7 @@ void AT91F_USB_SendData(AT91PS_UDP pudp, const char *pData, uint32_t length) {
 
     if (pudp->UDP_CSR[AT91C_EP_CONTROL] & AT91C_UDP_TXCOMP) {
         UDP_CLEAR_EP_FLAGS(AT91C_EP_CONTROL, AT91C_UDP_TXCOMP);
-        while (pudp->UDP_CSR[AT91C_EP_CONTROL] & AT91C_UDP_TXCOMP);
+        while (pudp->UDP_CSR[AT91C_EP_CONTROL] & AT91C_UDP_TXCOMP) {};
     }
 }
 
@@ -835,6 +1054,8 @@ void AT91F_USB_SendData(AT91PS_UDP pudp, const char *pData, uint32_t length) {
 //*----------------------------------------------------------------------------
 void AT91F_USB_SendZlp(AT91PS_UDP pudp) {
     UDP_SET_EP_FLAGS(AT91C_EP_CONTROL, AT91C_UDP_TXPKTRDY);
+    // for non ping-pong operation, wait until the FIFO is released
+    // the flag for FIFO released is AT91C_UDP_TXCOMP rather than AT91C_UDP_TXPKTRDY
     while (!(pudp->UDP_CSR[AT91C_EP_CONTROL] & AT91C_UDP_TXCOMP)) {};
     UDP_CLEAR_EP_FLAGS(AT91C_EP_CONTROL, AT91C_UDP_TXCOMP);
     while (pudp->UDP_CSR[AT91C_EP_CONTROL] & AT91C_UDP_TXCOMP) {};
@@ -862,8 +1083,9 @@ void AT91F_CDC_Enumerate(void) {
     uint8_t bmRequestType, bRequest;
     uint16_t wValue, wIndex, wLength, wStatus;
 
-    if (!(pUdp->UDP_CSR[AT91C_EP_CONTROL] & AT91C_UDP_RXSETUP))
+    if (!(pUdp->UDP_CSR[AT91C_EP_CONTROL] & AT91C_UDP_RXSETUP)) {
         return;
+    }
 
     bmRequestType = pUdp->UDP_FDR[AT91C_EP_CONTROL];
     bRequest      = pUdp->UDP_FDR[AT91C_EP_CONTROL];
@@ -903,13 +1125,13 @@ void AT91F_CDC_Enumerate(void) {
     switch ((bRequest << 8) | bmRequestType) {
         case STD_GET_DESCRIPTOR: {
 
-            if (wValue == 0x100)         // Return Device Descriptor
+            if (wValue == 0x100) {        // Return Device Descriptor
                 AT91F_USB_SendData(pUdp, devDescriptor, MIN(sizeof(devDescriptor), wLength));
-            else if (wValue == 0x200)    // Return Configuration Descriptor
+            } else if (wValue == 0x200) {   // Return Configuration Descriptor
                 AT91F_USB_SendData(pUdp, cfgDescriptor, MIN(sizeof(cfgDescriptor), wLength));
-            else if ((wValue & 0xF00) == 0xF00)  // Return BOS Descriptor
+            } else if ((wValue & 0xF00) == 0xF00) { // Return BOS Descriptor
                 AT91F_USB_SendData(pUdp, bosDescriptor, MIN(sizeof(bosDescriptor), wLength));
-            else if ((wValue & 0x300) == 0x300) {  // Return String Descriptor
+            } else if ((wValue & 0x300) == 0x300) {  // Return String Descriptor
 
                 const char *strDescriptor = getStringDescriptor(wValue & 0xff);
                 if (strDescriptor != NULL) {
@@ -1001,9 +1223,13 @@ void AT91F_CDC_Enumerate(void) {
             wIndex &= 0x0F;
             if ((wValue == 0) && (wIndex >= AT91C_EP_OUT) && (wIndex <= AT91C_EP_NOTIFY)) {
 
-                if (wIndex == AT91C_EP_OUT)         pUdp->UDP_CSR[AT91C_EP_OUT] = (AT91C_UDP_EPEDS | AT91C_UDP_EPTYPE_BULK_OUT);
-                else if (wIndex == AT91C_EP_IN)     pUdp->UDP_CSR[AT91C_EP_IN] = (AT91C_UDP_EPEDS | AT91C_UDP_EPTYPE_BULK_IN);
-                else if (wIndex == AT91C_EP_NOTIFY) pUdp->UDP_CSR[AT91C_EP_NOTIFY] = (AT91C_UDP_EPEDS | AT91C_UDP_EPTYPE_INT_IN);
+                if (wIndex == AT91C_EP_OUT) {
+                    pUdp->UDP_CSR[AT91C_EP_OUT] = (AT91C_UDP_EPEDS | AT91C_UDP_EPTYPE_BULK_OUT);
+                } else if (wIndex == AT91C_EP_IN) {
+                    pUdp->UDP_CSR[AT91C_EP_IN] = (AT91C_UDP_EPEDS | AT91C_UDP_EPTYPE_BULK_IN);
+                } else if (wIndex == AT91C_EP_NOTIFY) {
+                    pUdp->UDP_CSR[AT91C_EP_NOTIFY] = (AT91C_UDP_EPEDS | AT91C_UDP_EPTYPE_INT_IN);
+                }
 
                 AT91F_USB_SendZlp(pUdp);
             } else {

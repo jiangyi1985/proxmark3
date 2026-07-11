@@ -1,10 +1,18 @@
 //-----------------------------------------------------------------------------
-// Craig Young, 2014
-// Christian Herrmann, 2017
+// Copyright (C) Craig Young, 2014
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // main code for HF standalone mode Mifare /sniff/emulation by Craig Young
 //-----------------------------------------------------------------------------
@@ -54,7 +62,7 @@ void RunMod(void) {
     for (;;) {
         WDT_HIT();
         // exit from Standalone Mode,   send a usbcommand.
-        if (data_available()) return;
+        if (data_available()) break;
 
         SpinDelay(300);
 
@@ -72,7 +80,7 @@ void RunMod(void) {
 
             for (;;) {
                 // exit from Standalone Mode,   send a usbcommand.
-                if (data_available()) return;
+                if (data_available()) break;
 
                 if (BUTTON_PRESS()) {
                     if (cardRead[selected]) {
@@ -89,6 +97,9 @@ void RunMod(void) {
                 }
 
                 if (!iso14443a_select_card(NULL, &card[selected], NULL, true, 0, true)) {
+                    FpgaWriteConfWord(FPGA_MAJOR_MODE_OFF);
+                    LED_D_OFF();
+                    SpinDelay(500);
                     continue;
                 } else {
                     Dbprintf("Read UID:");
@@ -220,12 +231,12 @@ void RunMod(void) {
             DbpString("Playing");
             for (; ;) {
                 // exit from Standalone Mode,   send a usbcommand.
-                if (data_available()) return;
+                if (data_available()) break;
 
                 int button_pressed = BUTTON_HELD(1000);
                 if (button_pressed == BUTTON_NO_CLICK) {  // No button action, proceed with sim
 
-                    uint8_t flags = FLAG_4B_UID_IN_DATA;
+                    uint16_t flags = FLAG_4B_UID_IN_DATA;
                     uint8_t data[PM3_CMD_DATA_SIZE] = {0}; // in case there is a read command received we shouldn't break
 
                     memcpy(data, uids[selected].uid, uids[selected].uidlen);
@@ -241,22 +252,25 @@ void RunMod(void) {
 
                     if (uids[selected].sak == 0x08 && uids[selected].atqa[0] == 0x04 && uids[selected].atqa[1] == 0) {
                         DbpString("Mifare Classic 1k");
-                        SimulateIso14443aTag(1, flags, data);
+                        SimulateIso14443aTag(1, flags, data, 0);
                     } else if (uids[selected].sak == 0x18 && uids[selected].atqa[0] == 0x02 && uids[selected].atqa[1] == 0) {
                         DbpString("Mifare Classic 4k (4b uid)");
-                        SimulateIso14443aTag(8, flags, data);
+                        SimulateIso14443aTag(8, flags, data, 0);
                     } else if (uids[selected].sak == 0x08 && uids[selected].atqa[0] == 0x44 && uids[selected].atqa[1] == 0) {
                         DbpString("Mifare Classic 4k (7b uid)");
-                        SimulateIso14443aTag(8, flags, data);
+                        SimulateIso14443aTag(8, flags, data, 0);
                     } else if (uids[selected].sak == 0x00 && uids[selected].atqa[0] == 0x44 && uids[selected].atqa[1] == 0) {
                         DbpString("Mifare Ultralight");
-                        SimulateIso14443aTag(2, flags, data);
+                        SimulateIso14443aTag(2, flags, data, 0);
                     } else if (uids[selected].sak == 0x20 && uids[selected].atqa[0] == 0x04 && uids[selected].atqa[1] == 0x03) {
                         DbpString("Mifare DESFire");
-                        SimulateIso14443aTag(3, flags, data);
+                        SimulateIso14443aTag(3, flags, data, 0);
+                    } else if (uids[selected].sak == 0x20 && uids[selected].atqa[0] == 0x44 && uids[selected].atqa[1] == 0x03) {
+                        DbpString("Mifare DESFire Ev1/Plus/JCOP");
+                        SimulateIso14443aTag(3, flags, data, 0);
                     } else {
                         Dbprintf("Unrecognized tag type -- defaulting to Mifare Classic emulation");
-                        SimulateIso14443aTag(1, flags, data);
+                        SimulateIso14443aTag(1, flags, data, 0);
                     }
 
                 } else if (button_pressed == BUTTON_SINGLE_CLICK) {
@@ -277,4 +291,6 @@ void RunMod(void) {
             LED(selected + 1, 0);
         }
     }
+    DbpString(_YELLOW_("[=]") "exiting");
+    LEDsoff();
 }

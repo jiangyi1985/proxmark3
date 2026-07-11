@@ -1,9 +1,20 @@
-/*
- * spiffs.h
- *
- *  Created on: May 26, 2013
- *      Author: petera
- */
+//-----------------------------------------------------------------------------
+// Borrowed initially from https://github.com/pellepl/spiffs
+// Copyright (c) 2013-2017 Peter Andersson (pelleplutt1976 at gmail.com)
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
 
 #ifndef SPIFFS_H_
 #define SPIFFS_H_
@@ -13,7 +24,11 @@ extern "C" {
 
 #include "spiffs_config.h"
 
-typedef enum spiffs_safety_level { RDV40_SPIFFS_SAFETY_NORMAL, RDV40_SPIFFS_SAFETY_LAZY, RDV40_SPIFFS_SAFETY_SAFE } RDV40SpiFFSSafetyLevel;
+typedef enum spiffs_safety_level {
+    RDV40_SPIFFS_SAFETY_NORMAL,
+    RDV40_SPIFFS_SAFETY_LAZY,
+    RDV40_SPIFFS_SAFETY_SAFE
+} RDV40SpiFFSSafetyLevel;
 
 typedef enum spiffs_file_type {
     RDV40_SPIFFS_FILETYPE_REAL,
@@ -31,32 +46,34 @@ typedef struct rdv40_spiffs_fsinfo {
     uint32_t usedPercent, freePercent;
 } rdv40_spiffs_fsinfo;
 
-int rdv40_spiffs_read_as_filetype(char *filename, uint8_t *dst, uint32_t size, RDV40SpiFFSSafetyLevel level);
+int rdv40_spiffs_read_as_filetype(const char *filename, uint8_t *dst, uint32_t size, RDV40SpiFFSSafetyLevel level);
 
 int rdv40_spiffs_check(void);
 int rdv40_spiffs_lazy_unmount(void);
 int rdv40_spiffs_lazy_mount(void);
 int rdv40_spiffs_lazy_mount_rollback(int changed);
-int rdv40_spiffs_write(const char *filename, uint8_t *src, uint32_t size, RDV40SpiFFSSafetyLevel level);
+int rdv40_spiffs_write(const char *filename, const uint8_t *src, uint32_t size, RDV40SpiFFSSafetyLevel level);
 int rdv40_spiffs_read(const char *filename, uint8_t *dst, uint32_t size, RDV40SpiFFSSafetyLevel level);
-int rdv40_spiffs_rename(char *old_filename, char *new_filename, RDV40SpiFFSSafetyLevel level);
-int rdv40_spiffs_remove(char *filename, RDV40SpiFFSSafetyLevel level);
-int rdv40_spiffs_read_as_symlink(char *filename, uint8_t *dst, uint32_t size, RDV40SpiFFSSafetyLevel level);
-void write_to_spiffs(const char *filename, uint8_t *src, uint32_t size);
+int rdv40_spiffs_rename(const char *old_filename, const char *new_filename, RDV40SpiFFSSafetyLevel level);
+int rdv40_spiffs_remove(const char *filename, RDV40SpiFFSSafetyLevel level);
+int rdv40_spiffs_read_as_symlink(const char *filename, uint8_t *dst, uint32_t size, RDV40SpiFFSSafetyLevel level);
+void write_to_spiffs(const char *filename, const uint8_t *src, uint32_t size);
 void read_from_spiffs(const char *filename, uint8_t *dst, uint32_t size);
 void test_spiffs(void);
-void rdv40_spiffs_safe_print_tree(uint8_t banner);
+void rdv40_spiffs_safe_print_tree(void);
 int rdv40_spiffs_unmount(void);
 int rdv40_spiffs_mount(void);
 int rdv40_spiffs_is_symlink(const char *s);
 void rdv40_spiffs_safe_print_fsinfo(void);
-int rdv40_spiffs_make_symlink(char *linkdest, char *filename, RDV40SpiFFSSafetyLevel level);
-void append_to_spiffs(const char *filename, uint8_t *src, uint32_t size);
-int rdv40_spiffs_copy(char *src, char *dst, RDV40SpiFFSSafetyLevel level);
-int rdv40_spiffs_append(const char *filename, uint8_t *src, uint32_t size, RDV40SpiFFSSafetyLevel level);
-int rdv40_spiffs_stat(char *filename, uint32_t *buf, RDV40SpiFFSSafetyLevel level);
+int rdv40_spiffs_make_symlink(const char *linkdest, const char *filename, RDV40SpiFFSSafetyLevel level);
+void append_to_spiffs(const char *filename, const uint8_t *src, uint32_t size);
+int rdv40_spiffs_copy(const char *src_filename, const char *dst_filename, RDV40SpiFFSSafetyLevel level);
+int rdv40_spiffs_append(const char *filename, const uint8_t *src, uint32_t size, RDV40SpiFFSSafetyLevel level);
+int rdv40_spiffs_stat(const char *filename, uint32_t *size_in_bytes, RDV40SpiFFSSafetyLevel level);
 uint32_t size_in_spiffs(const char *filename);
 int exists_in_spiffs(const char *filename);
+
+void rdv40_spiffs_safe_wipe(void);
 
 #define SPIFFS_OK                       0
 #define SPIFFS_ERR_NOT_MOUNTED          -10000
@@ -112,6 +129,8 @@ int exists_in_spiffs(const char *filename);
 
 #define SPIFFS_ERR_TEST                 -10100
 
+// Amount of data to write/append to a file in one go.
+#define SPIFFS_WRITE_CHUNK_SIZE 8192
 
 // spiffs file descriptor index type. must be signed
 typedef s16_t spiffs_file;
@@ -185,16 +204,16 @@ typedef void (*spiffs_file_callback)(struct spiffs_t *fs, spiffs_fileop_type op,
 
 #ifndef SPIFFS_DBG
 #define SPIFFS_DBG(...) \
-    printf(__VA_ARGS__)
+    Dbprintf(__VA_ARGS__)
 #endif
 #ifndef SPIFFS_GC_DBG
-#define SPIFFS_GC_DBG(...) printf(__VA_ARGS__)
+#define SPIFFS_GC_DBG(...) Dbprintf(__VA_ARGS__)
 #endif
 #ifndef SPIFFS_CACHE_DBG
-#define SPIFFS_CACHE_DBG(...) printf(__VA_ARGS__)
+#define SPIFFS_CACHE_DBG(...) Dbprintf(__VA_ARGS__)
 #endif
 #ifndef SPIFFS_CHECK_DBG
-#define SPIFFS_CHECK_DBG(...) printf(__VA_ARGS__)
+#define SPIFFS_CHECK_DBG(...) Dbprintf(__VA_ARGS__)
 #endif
 
 /* Any write to the filehandle is appended to end of the file */
@@ -740,7 +759,7 @@ s32_t SPIFFS_tell(spiffs *fs, spiffs_file fh);
  * in this callback will mess things up for sure - do not do this.
  * This can be used to track where files are and move around during garbage
  * collection, which in turn can be used to build location tables in ram.
- * Used in conjuction with SPIFFS_open_by_page this may improve performance
+ * Used in conjunction with SPIFFS_open_by_page this may improve performance
  * when opening a lot of files.
  * Must be invoked after mount.
  *

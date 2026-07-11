@@ -1,3 +1,36 @@
+//-----------------------------------------------------------------------------
+// Borrowed initially from https://github.com/holiman/loclass
+// Copyright (C) 2014 Martin Holst Swende
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
+// WARNING
+//
+// THIS CODE IS CREATED FOR EXPERIMENTATION AND EDUCATIONAL USE ONLY.
+//
+// USAGE OF THIS CODE IN OTHER WAYS MAY INFRINGE UPON THE INTELLECTUAL
+// PROPERTY OF OTHER PARTIES, SUCH AS INSIDE SECURE AND HID GLOBAL,
+// AND MAY EXPOSE YOU TO AN INFRINGEMENT ACTION FROM THOSE PARTIES.
+//
+// THIS CODE SHOULD NEVER BE USED TO INFRINGE PATENTS OR INTELLECTUAL PROPERTY RIGHTS.
+//-----------------------------------------------------------------------------
+// It is a reconstruction of the cipher engine used in iClass, and RFID techology.
+//
+// The implementation is based on the work performed by
+// Flavio D. Garcia, Gerhard de Koning Gans, Roel Verdult and
+// Milosch Meriac in the paper "Dismantling IClass".
+//-----------------------------------------------------------------------------
 #ifndef OPTIMIZED_CIPHER_H
 #define OPTIMIZED_CIPHER_H
 
@@ -16,11 +49,14 @@ typedef struct {
     uint8_t r;
     uint8_t b;
     uint16_t t;
-} State;
+} State_t;
 
 /** The reader MAC is MAC(key, CC * NR )
  **/
 void opt_doReaderMAC(uint8_t *cc_nr_p, uint8_t *div_key_p, uint8_t mac[4]);
+
+void opt_doReaderMAC_2(State_t _init,  uint8_t *nr, uint8_t mac[4], const uint8_t *div_key_p);
+
 /**
  * The tag MAC is MAC(key, CC * NR * 32x0))
  */
@@ -34,7 +70,7 @@ void opt_doTagMAC(uint8_t *cc_p, const uint8_t *div_key_p, uint8_t mac[4]);
  * @param div_key_p
  * @return the cipher state
  */
-State opt_doTagMAC_1(uint8_t *cc_p, const uint8_t *div_key_p);
+State_t opt_doTagMAC_1(uint8_t *cc_p, const uint8_t *div_key_p);
 /**
  * The second part of the tag MAC calculation, since the CC is already calculated into the state,
  * this function is fed only the NR, and internally feeds the remaining 32 0-bits to generate the tag
@@ -44,6 +80,8 @@ State opt_doTagMAC_1(uint8_t *cc_p, const uint8_t *div_key_p);
  * @param mac - where to store the MAC
  * @param div_key_p - the key to use
  */
-void opt_doTagMAC_2(State _init, uint8_t *nr, uint8_t mac[4], const uint8_t *div_key_p);
+void opt_doTagMAC_2(State_t _init, uint8_t *nr, uint8_t mac[4], const uint8_t *div_key_p);
 
+void doMAC_N(uint8_t *in_p, uint8_t in_size, uint8_t *div_key_p, uint8_t mac[4]);
+void iclass_calc_div_key(uint8_t *csn, uint8_t *key, uint8_t *div_key, bool elite);
 #endif // OPTIMIZED_CIPHER_H

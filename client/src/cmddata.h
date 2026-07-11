@@ -1,9 +1,17 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2010 iZsh <izsh at fail0verflow.com>
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Data and Graph commands
 //-----------------------------------------------------------------------------
@@ -12,6 +20,7 @@
 #define CMDDATA_H__
 
 #include "common.h"
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -59,34 +68,36 @@ int CmdNorm(const char *Cmd);                                                   
 int CmdPlot(const char *Cmd);                                                                   // used by cmd lf cotag
 int CmdSave(const char *Cmd);                                                                   // used by cmd auto
 int CmdTuneSamples(const char *Cmd);                                                            // used by cmd lf hw
-int ASKbiphaseDemod(const char *Cmd, bool verbose);                                             // used by cmd lf em4x, lf fdx, lf guard, lf jablotron, lf nedap, lf t55xx
-int ASKDemod(const char *Cmd, bool verbose, bool emSearch, uint8_t askType);                    // used by cmd lf em4x, lf t55xx, lf viking
-int ASKDemod_ext(const char *Cmd, bool verbose, bool emSearch, uint8_t askType, bool *stCheck); // used by cmd lf, lf em4x, lf noralsy, le presco, lf securekey, lf t55xx, lf visa2k
-int FSKrawDemod(const char *Cmd, bool verbose);                                                 // used by cmd lf, lf em4x, lf t55xx
-int PSKDemod(const char *Cmd, bool verbose);                                                    // used by cmd lf em4x, lf indala, lf keri, lf nexwatch, lf t55xx
-int NRZrawDemod(const char *Cmd, bool verbose);                                                 // used by cmd lf pac, lf t55xx
+
+int ASKbiphaseDemod(int offset, int clk, int invert, int maxErr, bool verbose);                 // used by cmd lf em4x, lf fdxb, lf guard, lf jablotron, lf nedap, lf t55xx
+int ASKDemod(int clk, int invert, int maxErr, size_t maxlen, bool amplify, bool verbose, bool emSearch, uint8_t askType);                    // used by cmd lf em4x, lf t55xx, lf viking
+int ASKDemod_ext(int clk, int invert, int maxErr, size_t maxlen, bool amplify, bool verbose, bool emSearch, uint8_t askType, bool *stCheck); // used by cmd lf, lf em4x, lf noralsy, le presco, lf securekey, lf t55xx, lf visa2k
+int FSKrawDemod(uint8_t rfLen, uint8_t invert, uint8_t fchigh, uint8_t fclow, bool verbose);    // used by cmd lf, lf em4x, lf t55xx
+int PSKDemod(int clk, int invert, int maxErr, bool verbose);                                    // used by cmd lf em4x, lf indala, lf keri, lf nexwatch, lf t55xx
+int NRZrawDemod(int clk, int invert, int maxErr, bool verbose);                                 // used by cmd lf pac, lf t55xx
 
 
-void printDemodBuff(void);
-void setDemodBuff(uint8_t *buff, size_t size, size_t start_idx);
+int printDemodBuff(uint8_t offset, bool strip_leading, bool invert, bool print_hex);
+
+void setDemodBuff(const uint8_t *buff, size_t size, size_t start_idx);
 bool getDemodBuff(uint8_t *buff, size_t *size);
-void save_restoreDB(uint8_t saveOpt);// option '1' to save DemodBuffer any other to restore
 int AutoCorrelate(const int *in, int *out, size_t len, size_t window, bool SaveGrph, bool verbose);
 
 int getSamples(uint32_t n, bool verbose);
-int getSamplesEx(uint32_t start, uint32_t end, bool verbose);
+int getSamplesEx(uint32_t start, uint32_t end, bool verbose, bool ignore_lf_config);
+int getSamplesFromBufEx(uint8_t *data, size_t sample_num, uint8_t bits_per_sample, bool verbose);
 
 void setClockGrid(uint32_t clk, int offset);
 int directionalThreshold(const int *in, int *out, size_t len, int8_t up, int8_t down);
+int centerThreshold(const int *in, int *out, size_t len, int8_t up, int8_t down);
 int AskEdgeDetect(const int *in, int *out, int len, int threshold);
-int demodIdteck(void);
 
 #define MAX_DEMOD_BUF_LEN (1024*128)
-extern uint8_t DemodBuffer[MAX_DEMOD_BUF_LEN];
-extern size_t DemodBufferLen;
+extern uint8_t g_DemodBuffer[MAX_DEMOD_BUF_LEN];
+extern size_t g_DemodBufferLen;
 
 extern int g_DemodClock;
-extern size_t g_DemodStartIdx;
+extern int32_t g_DemodStartIdx;
 
 #ifdef __cplusplus
 }

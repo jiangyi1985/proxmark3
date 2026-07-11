@@ -1,40 +1,27 @@
-/*-
- * Copyright (c) 1986, 1988, 1991, 1993
- * The Regents of the University of California.  All rights reserved.
- * (c) UNIX System Laboratories, Inc.
- * All or some portions of this file are derived from material licensed
- * to the University of California by American Telephone and Telegraph
- * Co. or Unix System Laboratories, Inc. and are reproduced herein with
- * the permission of UNIX System Laboratories, Inc.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *
- * @(#)subr_prf.c 8.3 (Berkeley) 1/21/94
- */
+//-----------------------------------------------------------------------------
+// Borrowed initially from subr_prf.c 8.3 (Berkeley) 1/21/94
+// Copyright (c) 1986, 1988, 1991, 1993
+// The Regents of the University of California.  All rights reserved.
+// (c) UNIX System Laboratories, Inc.
+// All or some portions of this file are derived from material licensed
+// to the University of California by American Telephone and Telegraph
+// Co. or Unix System Laboratories, Inc. and are reproduced herein with
+// the permission of UNIX System Laboratories, Inc.
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
 #include "printf.h"
-
 #include "string.h"
 
 typedef unsigned char u_char;
@@ -126,11 +113,14 @@ kvsprintf(char const *fmt, void *arg, int radix, va_list ap) {
     for (;;) {
         padc = ' ';
         width = 0;
+
         while ((ch = (u_char) * fmt++) != '%' || stop) {
             PCHAR(ch);
-            if (ch == '\0')
+            if (ch == '\0') {
                 return (retval);
+            }
         }
+
         percent = fmt - 1;
         qflag = 0;
         lflag = 0;
@@ -191,36 +181,43 @@ reswitch:
                 for (n = 0;; ++fmt) {
                     n = n * 10 + ch - '0';
                     ch = *fmt;
-                    if (ch < '0' || ch > '9')
+                    if (ch < '0' || ch > '9') {
                         break;
+                    }
                 }
-                if (dot)
+                if (dot) {
                     dwidth = n;
-                else
+                } else {
                     width = n;
+                }
                 goto reswitch;
             case 'b':
                 num = (u_int)va_arg(ap, int);
                 p = va_arg(ap, char *);
-                for (q = ksprintn(nbuf, num, *p++, NULL, 0); *q;)
+                for (q = ksprintn(nbuf, num, *p++, NULL, 0); *q;) {
                     PCHAR(*q--);
+                }
 
-                if (num == 0)
+                if (num == 0) {
                     break;
+                }
 
                 for (tmp = 0; *p;) {
                     n = *p++;
                     if (num & (1 << (n - 1))) {
                         PCHAR(tmp ? ',' : '<');
-                        for (; (n = *p) > ' '; ++p)
+                        for (; (n = *p) > ' '; ++p) {
                             PCHAR(n);
+                        }
                         tmp = 1;
-                    } else
-                        for (; *p > ' '; ++p)
-                            continue;
+                    } else {
+                        for (; *p > ' '; ++p) {};
+                    }
                 }
-                if (tmp)
+
+                if (tmp) {
                     PCHAR('>');
+                }
                 break;
             case 'c':
                 PCHAR(va_arg(ap, int));
@@ -228,15 +225,19 @@ reswitch:
             case 'D':
                 up = va_arg(ap, u_char *);
                 p = va_arg(ap, char *);
-                if (!width)
+                if (!width) {
                     width = 16;
+                }
+
                 while (width--) {
                     PCHAR(hex2ascii(*up >> 4));
                     PCHAR(hex2ascii(*up & 0x0f));
                     up++;
-                    if (width)
-                        for (q = p; *q; q++)
+                    if (width) {
+                        for (q = p; *q; q++) {
                             PCHAR(*q);
+                        }
+                    }
                 }
                 break;
             case 'd':
@@ -248,8 +249,9 @@ reswitch:
                 if (hflag) {
                     hflag = 0;
                     cflag = 1;
-                } else
+                } else {
                     hflag = 1;
+                }
                 goto reswitch;
             case 'j':
                 jflag = 1;
@@ -258,8 +260,9 @@ reswitch:
                 if (lflag) {
                     lflag = 0;
                     qflag = 1;
-                } else
+                } else {
                     lflag = 1;
+                }
                 goto reswitch;
             case 'n':
                 if (jflag)
@@ -291,29 +294,38 @@ reswitch:
                 goto reswitch;
             case 'r':
                 base = radix;
-                if (sign)
+                if (sign) {
                     goto handle_sign;
+                }
                 goto handle_nosign;
             case 's':
                 p = va_arg(ap, char *);
-                if (p == NULL)
+                if (p == NULL) {
                     p = "(null)";
-                if (!dot)
+                }
+
+                if (!dot) {
                     n = strlen(p);
-                else
-                    for (n = 0; n < dwidth && p[n]; n++)
-                        continue;
+                } else {
+                    for (n = 0; n < dwidth && p[n]; n++) {};
+                }
 
                 width -= n;
 
-                if (!ladjust && width > 0)
-                    while (width--)
+                if (!ladjust && width > 0) {
+                    while (width--) {
                         PCHAR(padc);
-                while (n--)
+                    }
+                }
+                while (n--) {
                     PCHAR(*p++);
-                if (ladjust && width > 0)
-                    while (width--)
+                }
+
+                if (ladjust && width > 0) {
+                    while (width--) {
                         PCHAR(padc);
+                    }
+                }
                 break;
             case 't':
                 tflag = 1;
@@ -374,22 +386,31 @@ number:
                     neg = 1;
                     num = -(intmax_t)num;
                 }
-                p = ksprintn(nbuf, num, base, &tmp, upper);
-                if (sharpflag && num != 0) {
-                    if (base == 8)
-                        tmp++;
-                    else if (base == 16)
-                        tmp += 2;
-                }
-                if (neg)
-                    tmp++;
 
-                if (!ladjust && padc != '0' && width
-                        && (width -= tmp) > 0)
-                    while (width--)
+                p = ksprintn(nbuf, num, base, &tmp, upper);
+
+                if (sharpflag && num != 0) {
+                    if (base == 8) {
+                        tmp++;
+                    } else if (base == 16) {
+                        tmp += 2;
+                    }
+                }
+
+                if (neg) {
+                    tmp++;
+                }
+
+                if (!ladjust && padc != '0' && width && (width -= tmp) > 0) {
+                    while (width--) {
                         PCHAR(padc);
-                if (neg)
+                    }
+                }
+
+                if (neg) {
                     PCHAR('-');
+                }
+
                 if (sharpflag && num != 0) {
                     if (base == 8) {
                         PCHAR('0');
@@ -398,21 +419,28 @@ number:
                         PCHAR('x');
                     }
                 }
-                if (!ladjust && width && (width -= tmp) > 0)
-                    while (width--)
-                        PCHAR(padc);
 
-                while (*p)
+                if (!ladjust && width && (width -= tmp) > 0) {
+                    while (width--) {
+                        PCHAR(padc);
+                    }
+                }
+
+                while (*p) {
                     PCHAR(*p--);
+                }
 
-                if (ladjust && width && (width -= tmp) > 0)
-                    while (width--)
+                if (ladjust && width && (width -= tmp) > 0) {
+                    while (width--) {
                         PCHAR(padc);
+                    }
+                }
 
                 break;
             default:
-                while (percent < fmt)
+                while (percent < fmt) {
                     PCHAR(*percent++);
+                }
                 /*
                  * Since we ignore an formatting argument it is no
                  * longer safe to obey the remaining formatting

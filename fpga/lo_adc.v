@@ -1,4 +1,19 @@
 //-----------------------------------------------------------------------------
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
+//
 // The way that we connect things in low-frequency simulation mode. In this
 // case just pass everything through to the ARM, which can bit-bang this
 // (because it is so slow).
@@ -7,22 +22,24 @@
 //-----------------------------------------------------------------------------
 
 module lo_adc(
-    pck0,
-    pwr_lo, pwr_hi, pwr_oe1, pwr_oe2, pwr_oe3, pwr_oe4,
-    adc_d, adc_clk,
-    ssp_frame, ssp_din, ssp_dout, ssp_clk,
-    dbg, divisor,
-    lf_field
+    input pck0,
+    input [7:0] adc_d,
+    input [7:0] divisor,
+    input lf_field,
+    input ssp_dout,
+
+    output ssp_din,
+    output ssp_frame,
+    output ssp_clk,
+    output adc_clk,
+    output pwr_lo,
+    output pwr_hi,
+    output pwr_oe1,
+    output pwr_oe2,
+    output pwr_oe3,
+    output pwr_oe4,
+    output debug
 );
-    input pck0;
-    output pwr_lo, pwr_hi, pwr_oe1, pwr_oe2, pwr_oe3, pwr_oe4;
-    input [7:0] adc_d;
-    output adc_clk;
-    input ssp_dout;
-    output ssp_frame, ssp_din, ssp_clk;
-    output dbg;
-    input [7:0] divisor;
-    input lf_field;
 
 reg [7:0] to_arm_shiftreg;
 reg [7:0] pck_divider;
@@ -34,16 +51,16 @@ wire reader_modulation = !ssp_dout & lf_field & clk_state;
 
 // always on (High Frequency outputs, unused)
 assign pwr_oe1 = 1'b0;
-assign pwr_hi = 1'b0;
+assign pwr_hi  = 1'b0;
 
 // low frequency outputs
-assign pwr_lo = reader_modulation;
+assign pwr_lo  = reader_modulation;
 assign pwr_oe2 = 1'b0;  // 33 Ohms
 assign pwr_oe3 = tag_modulation; // base antenna load = 33 Ohms
 assign pwr_oe4 = 1'b0;  // 10k Ohms
 
 // Debug Output ADC clock
-assign dbg = adc_clk;
+assign debug = adc_clk;
 
 // ADC clock out of phase with antenna driver
 assign adc_clk = ~clk_state;
@@ -61,10 +78,10 @@ assign ssp_frame = (pck_divider[7:3] == 5'd1) && !clk_state;
 always @(posedge pck0)
 begin
     if (pck_divider == divisor[7:0])
-  begin
+    begin
         pck_divider <= 8'd0;
         clk_state = !clk_state;
-  end
+    end
     else
     begin
         pck_divider <= pck_divider + 1;
@@ -77,13 +94,9 @@ always @(posedge pck0)
 begin
     if ((pck_divider == 8'd7) && !clk_state)
         to_arm_shiftreg <= adc_d;
-    else begin
+    else
+    begin
         to_arm_shiftreg[7:1] <= to_arm_shiftreg[6:0];
-        // simulation showed a glitch occuring due to the LSB of the shifter
-        // not being set as we shift bits out
-        // this ensures the ssp_din remains low after a transfer and suppresses
-        // the glitch that would occur when the last data shifted out ended in
-        // a 1 bit and the next data shifted out started with a 0 bit
         to_arm_shiftreg[0] <= 1'b0;
     end
 end

@@ -5,6 +5,7 @@ Authors:
 
 * Attacks 1, 2, 3, 4 : Kevin Sheldrake <kev@headhacking.com>
 * Attacks 5, 5gpu : anonymous, based on https://github.com/factoritbv/hitag2hell by FactorIT B.V.
+* Attack  5opencl : Gabriele Gristina <gabriele.gristina@gmail.com>, based on 5gpu
 
 Introduction
 ------------
@@ -15,6 +16,13 @@ and Josep Balasch, and Lock It And Still Lose It - on the (In)Security of
 Automotive Remote Keyless Entry Systems by Flavio Garcia, David Oswald,
 Timo Kasper and Pierre Pavlides.  The first three attacks come from the first
 paper and the fourth attack comes from the second paper.
+
+
+_note_
+There are no Proxmark3 client implemented commands for these attacks. Only separate executables to be compiled and run on your own system.
+No guarantees of working binaries on all systems.  Some work on linux only. 
+There is no easy way to extract the needed data from a live system and use with these tools.
+You can use the `RFIdler` device but the Proxmark3 client needs some more love.  Feel free to contribute.
 
 Attack 1
 --------
@@ -107,6 +115,12 @@ Attack 5gpu
 Attack 5gpu is identical to attack 5, simply the code has been ported to OpenCL
 to run on GPUs and is therefore much faster than attack 5.
 
+Attack 5opencl
+--------------
+
+Attack 5opencl is an optimized OpenCL version based on 5gpu.
+It runs on multi GPUs/CPUs and is faster than 5gpu.
+
 Usage details: Attack 1
 -----------------------
 
@@ -115,14 +129,12 @@ response pair.  The attacker needs to obtain a valid tag and then use this to
 obtain a valid encrypted nonce and challenge response pair.  This can be
 achieved by using the Proxmark3 `lf hitag sniff` command, placing the coil on the RWD and
 presenting the valid tag.  The encrypted nonce and challenge response pairs
-can then be read out.  These values can then
-be used to attack the tag with `lf hitag ht2crack <nR> <aR>`.
+can then be read out.   
+
+_note_  the Proxmark3 hitag sniff command isn't good enough yet to collect the needed data.
 
 **TODO** example
-```
-pm3 --> lf hitag sniff
-pm3 --> lf hitag ht2crack <nR> <aR>
-```
+
 
 Usage details: Attack 2
 -----------------------
@@ -132,21 +144,12 @@ The table can be generated on a disk with >1.5TB of storage, although it takes
 some time (allow a couple of days, privilege SSD). This can be
 achieved by using the Proxmark3 `lf hitag sniff` command, placing the coil on the RWD and
 presenting the valid tag.  The encrypted nonce and challenge response pairs
-can then be read out.  These values can then
-be used to attack the tag with `lf hitag ht2keystream <nR> <aR>`.
+can then be read out.  
+
+_note_  the Proxmark3 hitag sniff command isn't good enough yet to collect the needed data.
 
 **TODO** example
-```
-./ht2crack2buildtable
-pm3 --> lf hitag sniff
-pm3 --> lf hitag ht2keystream <nR> <aR>
-```
 
-It creates a file `Hitag2_<UID>_<nR>_<aR>_keystream.txt`.
-
-```
-./ht2crack2search Hitag2_<UID>_<nR>_<aR>_keystream.txt <UID> <nR>
-```
 
 Usage details: Attack 3
 -----------------------
@@ -157,18 +160,10 @@ to; e.g. you could potentially use any HiTag2 tag as long as the RWD starts
 the crypto handshake with it.  It requires >=136 encrypted nonce and challenge
 response pairs for the same tag UID.
 
+_note_  the Proxmark3 hitag sniff command isn't good enough yet to collect the needed data.
+
 **TODO** will be ht2 sim or sniff with actual tag ?
 
-```
-pm3 --> lf hitag sniff l 
-```
-
-It creates a file `Hitag2_<UID>_<nR>_<aR>_collection.txt`.
-Stop once you got enough pairs.
-
-```
-./ht2crack3 <UID> Hitag2_<UID>_<nR>_<aR>_collection.txt
-```
 
 Usage details: Attack 4
 -----------------------
@@ -176,19 +171,9 @@ Usage details: Attack 4
 Attack 4 requires the same information as attack 3, but only 16-32 encrypted
 nonce and challenge response pairs are required.
 
-```
-pm3 --> lf hitag sniff l 
-```
+_note_  the Proxmark3 hitag sniff command isn't good enough yet to collect the needed data.
 
-It creates a file `Hitag2_<UID>_<nR>_<aR>_collection.txt`.
-Stop once you got enough pairs.
-
-```
-./ht2crack4 -u <UID> -n Hitag2_<UID>_<nR>_<aR>_collection.txt [-N <number of nonces to use>] [-t <table size>]
-```
-
-Start with -N 16 and -t 500000.  If the attack fails to find the key, double
-the table size and try again, repeating if it still fails.
+**TODO** example
 
 Usage details: Attack 5
 -----------------------
@@ -196,29 +181,18 @@ Usage details: Attack 5
 Attack 5 requires two encrypted nonce and challenge
 response value pairs (nR, aR) for the tag's UID.
 
-```
-pm3 --> lf hitag sniff
-```
-Stop once you got two pairs.
+**TODO** example
 
-```
-$ ./ht2crack5 <UID> <nR1> <aR1> <nR2> <aR2>
-```
 
-Usage details: Attack 5gpu
---------------------------
+Usage details: Attack 5gpu/5opencl
+----------------------------------
 
-Attack 5gpu requires two encrypted nonce and challenge
+Attacks 5gpu and 5opencl require two encrypted nonce and challenge
 response value pairs (nR, aR) for the tag's UID.
 
-```
-pm3 --> lf hitag sniff
-```
-Stop once you got two pairs.
+**TODO** example
 
-```
-$ ./ht2crack5gpu <UID> <nR1> <aR1> <nR2> <aR2>
-```
+5opencl supports a number of additional parameters, see [crack5opencl/README.md](/tools/hitag2crack/crack5opencl/README.md) for details.
 
 Usage details: Next steps
 -------------------------

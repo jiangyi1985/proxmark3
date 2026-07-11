@@ -1,9 +1,17 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2019 iceman
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Thinfilm commands
 //-----------------------------------------------------------------------------
@@ -12,7 +20,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
-
+#include "cliparser.h"
 #include "cmdparser.h"    // command_t
 #include "comms.h"
 #include "cmdtrace.h"
@@ -21,28 +29,6 @@
 #include "cmdhf14a.h" // manufacture
 
 static int CmdHelp(const char *Cmd);
-
-static int usage_thinfilm_info(void) {
-    PrintAndLogEx(NORMAL, "Usage:  hf thinfilm info [h]");
-    PrintAndLogEx(NORMAL, "Options:");
-    PrintAndLogEx(NORMAL, "           h    this help");
-    PrintAndLogEx(NORMAL, "");
-    PrintAndLogEx(NORMAL, "Examples:");
-    PrintAndLogEx(NORMAL, "           hf thinfilm info");
-    return PM3_SUCCESS;
-}
-
-static int usage_thinfilm_sim(void) {
-    PrintAndLogEx(NORMAL, "Usage:  hf thinfilm sim [h] [d <data>]");
-    PrintAndLogEx(NORMAL, "Options:");
-    PrintAndLogEx(NORMAL, "           h          this help");
-    PrintAndLogEx(NORMAL, "           d <bytes>  bytes to send, in hex");
-    PrintAndLogEx(NORMAL, "           r          raw, provided bytes should include CRC");
-    PrintAndLogEx(NORMAL, "");
-    PrintAndLogEx(NORMAL, "Examples:");
-    PrintAndLogEx(NORMAL, "           hf thinfilm sim d B70470726f786d61726b2e636f6d");
-    return PM3_SUCCESS;
-}
 
 // Printing function based upon the code in libnfc
 // ref
@@ -57,15 +43,15 @@ static int print_barcode(uint8_t *barcode, const size_t barcode_len, bool verbos
     if (verbose) {
         PrintAndLogEx(SUCCESS, "     Data format : "_YELLOW_("%02X"), barcode[1]);
         if (barcode_len > 2) {
-            uint8_t b1, b2;
+            uint8_t b1 = 0, b2 = 0;
             compute_crc(CRC_14443_A, barcode, barcode_len - 2, &b1, &b2);
             bool isok = (barcode[barcode_len - 1] == b1 && barcode[barcode_len - 2] == b2);
 
-            PrintAndLogEx(SUCCESS, "        Checksum : "_YELLOW_("%02X %02X")" - %s", b2, b1, (isok) ? _GREEN_("OK") : _RED_("fail"));
+            PrintAndLogEx(SUCCESS, "        Checksum : "_YELLOW_("%02X %02X")" ( %s )", b2, b1, (isok) ? _GREEN_("ok") : _RED_("fail"));
         } else {
             PrintAndLogEx(SUCCESS, "        Checksum : "_YELLOW_("too few data for checksum")" - " _RED_("fail"));
         }
-        PrintAndLogEx(SUCCESS, " Data len (bits) : "_YELLOW_("%zu")" - %s", barcode_len * 8, (barcode_len == 16 || barcode_len == 32) ? _GREEN_("OK") : _YELLOW_("warning"));
+        PrintAndLogEx(SUCCESS, " Data len (bits) : "_YELLOW_("%zu")" ( %s )", barcode_len * 8, (barcode_len == 16 || barcode_len == 32) ? _GREEN_("ok") : _YELLOW_("warning"));
         PrintAndLogEx(SUCCESS, "        Raw data : "_YELLOW_("%s"), sprint_hex(barcode, barcode_len));
         if (barcode_len < 4) // too few to go to next decoding stages
             return PM3_ESOFT;
@@ -106,7 +92,7 @@ static int print_barcode(uint8_t *barcode, const size_t barcode_len, bool verbos
 
     snprintf(s + strlen(s), barcode_len - 3, (const char *)&barcode[2], barcode_len - 4);
 
-    for (uint8_t i = 0; i < strlen(s); i++) {
+    for (size_t i = 0; i < strlen(s); i++) {
 
         // terminate string
         if ((uint8_t) s[i] == 0xFE) {
@@ -118,28 +104,18 @@ static int print_barcode(uint8_t *barcode, const size_t barcode_len, bool verbos
     return PM3_SUCCESS;
 }
 
+int CmdHfThinFilmInfo(const char *Cmd) {
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "hf thinfilm info",
+                  "Get info from Thinfilm tags",
+                  "hf thinfilm info");
 
-static int CmdHfThinFilmInfo(const char *Cmd) {
-
-    uint8_t cmdp = 0;
-    bool errors = false;
-    while (param_getchar(Cmd, cmdp) != 0x00 && !errors) {
-        switch (tolower(param_getchar(Cmd, cmdp))) {
-            case 'h':
-                return usage_thinfilm_info();
-            default:
-                PrintAndLogEx(WARNING, "Unknown parameter '%c'", param_getchar(Cmd, cmdp));
-                errors = true;
-                break;
-        }
-    }
-
-    //Validations
-    if (errors) {
-        usage_thinfilm_info();
-        return PM3_EINVARG;
-    }
-
+    void *argtable[] = {
+        arg_param_begin,
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, true);
+    CLIParserFree(ctx);
     return infoThinFilm(true);
 }
 
@@ -156,6 +132,8 @@ int infoThinFilm(bool verbose) {
 
     if (resp.status == PM3_SUCCESS) {
         if (resp.length == 16 || resp.length == 32)  {
+            PrintAndLogEx(NORMAL, "");
+            PrintAndLogEx(INFO, "--- " _CYAN_("Tag Information") " ---------------------------");
             print_barcode(resp.data.asBytes, resp.length, verbose);
         } else {
             if (verbose)
@@ -168,48 +146,43 @@ int infoThinFilm(bool verbose) {
     return resp.status;
 }
 
-static int CmdHfThinFilmSim(const char *Cmd) {
-    uint8_t cmdp = 0;
-    uint8_t data[512];
-    int datalen = 0;
+int CmdHfThinFilmSim(const char *Cmd) {
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "hf thinfilm sim",
+                  "Simulate Thinfilm tag",
+                  "hf thinfilm sim -d B70470726f786d61726b2e636f6d");
+
+    void *argtable[] = {
+        arg_param_begin,
+        arg_str1("d", "data", "<hex>", "bytes to send"),
+        arg_lit0(NULL, "raw", "raw, provided bytes should include CRC"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, false);
+
+    int data_len = 0;
+    uint8_t data[512] = {0};
+    CLIGetHexWithReturn(ctx, 1, data, &data_len);
 
     bool addcrc = true;
-    bool errors = false;
 
-    while (param_getchar(Cmd, cmdp) != 0x00 && !errors) {
-        switch (tolower(param_getchar(Cmd, cmdp))) {
-            case 'h':
-                return usage_thinfilm_sim();
-            case 'd':
-                // Retrieve the data
-                param_gethex_ex(Cmd, cmdp + 1, data, &datalen);
-                datalen >>= 1;
-                cmdp += 2;
-                break;
-            case 'r':
-                addcrc = false;
-                cmdp++;
-                break;
-            default:
-                PrintAndLogEx(WARNING, "Unknown parameter '%c'", param_getchar(Cmd, cmdp));
-                errors = true;
-                break;
-        }
+    if (arg_get_lit(ctx, 2)) {
+        addcrc = false;
     }
 
-    //Validations
-    if (errors || cmdp == 0 || datalen == 0 || datalen > 512) return usage_thinfilm_sim();
-    if (addcrc && datalen <= 510) {
-        uint8_t b1, b2;
-        compute_crc(CRC_14443_A, data, datalen, &b1, &b2);
-        data[datalen++] = b2;
-        data[datalen++] = b1;
+    CLIParserFree(ctx);
+
+    if (addcrc && data_len <= 510) {
+        uint8_t b1 = 0, b2 = 0;
+        compute_crc(CRC_14443_A, data, data_len, &b1, &b2);
+        data[data_len++] = b2;
+        data[data_len++] = b1;
     }
 
     clearCommandBuffer();
-    SendCommandNG(CMD_HF_THINFILM_SIMULATE, (uint8_t *)&data, datalen);
+    SendCommandNG(CMD_HF_THINFILM_SIMULATE, (uint8_t *)&data, data_len);
     PacketResponseNG resp;
-    PrintAndLogEx(SUCCESS, "press pm3-button to abort simulation");
+    PrintAndLogEx(SUCCESS, "press " _GREEN_("pm3 button") " to abort simulation");
 
     int ret;
     while (!(ret = kbd_enter_pressed())) {
@@ -220,15 +193,13 @@ static int CmdHfThinFilmSim(const char *Cmd) {
         PrintAndLogEx(INFO, "Client side interrupted");
         PrintAndLogEx(WARNING, "Simulation still running on Proxmark3 till next command or button press");
     } else {
-        PrintAndLogEx(INFO, "Done");
+        PrintAndLogEx(INFO, "Done!");
     }
     return PM3_SUCCESS;
 }
 
 static int CmdHfThinFilmList(const char *Cmd) {
-    (void)Cmd; // Cmd is not used so far
-    CmdTraceList("thinfilm");
-    return PM3_SUCCESS;
+    return CmdTraceListAlias(Cmd, "hf thinfilm", "thinfilm");
 }
 
 static command_t CommandTable[] = {

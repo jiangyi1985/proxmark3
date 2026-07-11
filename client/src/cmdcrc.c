@@ -1,11 +1,21 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2015 iceman <iceman at iuse.se>
+// Borrowed initially from https://reveng.sourceforge.io/
+// Copyright (C) Greg Cook 2019
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
-// CRC Calculations from the software reveng commands
+// CRC Calculations
 //-----------------------------------------------------------------------------
 #include "cmdcrc.h"
 
@@ -25,6 +35,7 @@
 #include "reveng.h"
 #include "ui.h"
 #include "util.h"
+#include "pm3_cmd.h"
 
 #define MAX_ARGS 20
 
@@ -253,7 +264,6 @@ int RunModel(char *inModel, char *inHexStr, bool reverse, char endian, char *res
 
     int ibperhx = 8, obperhx = 8;
 //    int rflags = 0; // search flags
-    int c;
     poly_t apoly, crc;
 
     char *string;
@@ -265,7 +275,7 @@ int RunModel(char *inModel, char *inHexStr, bool reverse, char endian, char *res
 
     SETBMP();
     //set model
-    c = mbynam(&model, inModel);
+    int c = mbynam(&model, inModel);
     if (!c) {
         PrintAndLogEx(ERR, "error: preset model '%s' not found.  Use reveng -D to list presets. [%d]", inModel, c);
         return 0;
@@ -405,7 +415,7 @@ static int CmdrevengSearch(const char *Cmd) {
 
 #define NMODELS 106
 
-    char inHexStr[100] = {0x00};
+    char inHexStr[256] = {0x00};
     int dataLen = param_getstr(Cmd, 0, inHexStr, sizeof(inHexStr));
     if (dataLen < 4) return 0;
 
@@ -414,11 +424,18 @@ static int CmdrevengSearch(const char *Cmd) {
     uint8_t width[NMODELS] = {0};
     int count = 0;
 
-    char result[30];
-    char revResult[30];
+    char result[50 + 1] = {0};
+    char revResult[50 + 1] = {0};
     int ans = GetModels(Models, &count, width);
     bool found = false;
-    if (!ans) return 0;
+    if (!ans) {
+        for (int i = 0; i < count; i++) {
+            free(Models[i]);
+        }
+        return 0;
+    }
+
+    str_lower(inHexStr);
 
     // try each model and get result
     for (int i = 0; i < count; i++) {
@@ -429,8 +446,10 @@ static int CmdrevengSearch(const char *Cmd) {
         // round up to # of characters in this model's crc
         uint8_t crcChars = ((width[i] + 7) / 8) * 2;
         // can't test a model that has more crc digits than our data
-        if (crcChars >= dataLen)
+        if (crcChars >= dataLen) {
+            free(Models[i]);
             continue;
+        }
 
         PrintAndLogEx(DEBUG
                       , "DEBUG: dataLen %d, crcChars %u,  width[i] %u"
@@ -439,28 +458,44 @@ static int CmdrevengSearch(const char *Cmd) {
                       , width[i]
                      );
 
-        if (crcChars == 0)
+        if (crcChars == 0) {
+            free(Models[i]);
             continue;
+        }
 
-        memset(result, 0, 30);
+        memset(result, 0, sizeof(result));
         char *inCRC = calloc(crcChars + 1, sizeof(char));
+        if (inCRC == NULL) {
+            return 0;
+        }
+
         memcpy(inCRC, inHexStr + (dataLen - crcChars), crcChars);
 
         char *outHex = calloc(dataLen - crcChars + 1, sizeof(char));
+        if (outHex == NULL) {
+            free(inCRC);
+            return 0;
+        }
+
         memcpy(outHex, inHexStr, dataLen - crcChars);
 
         ans = RunModel(Models[i], outHex, false, 0, result);
         if (ans) {
+
+            str_lower(result);
+
             // test for match
             if (memcmp(result, inCRC, crcChars) == 0) {
-                PrintAndLogEx(SUCCESS, "\nfound possible match\nmodel: %s | value: %s\n", Models[i], result);
+                PrintAndLogEx(SUCCESS, "model... " _YELLOW_("%s"), Models[i]);
+                PrintAndLogEx(SUCCESS, "value... %s\n", result);
                 //optional - stop searching if found...
                 found = true;
             } else {
                 if (crcChars > 2) {
                     char *swapEndian = SwapEndianStr(result, crcChars, crcChars);
                     if (memcmp(swapEndian, inCRC, crcChars) == 0) {
-                        PrintAndLogEx(SUCCESS, "\nfound possible match\nmodel: %s | value endian swapped: %s\n", Models[i], swapEndian);
+                        PrintAndLogEx(SUCCESS, "model... " _YELLOW_("%s"), Models[i]);
+                        PrintAndLogEx(SUCCESS, "value endian swapped... %s\n", swapEndian);
                         // optional - stop searching if found...
                         found = true;
                     }
@@ -470,16 +505,20 @@ static int CmdrevengSearch(const char *Cmd) {
         }
         ans = RunModel(Models[i], outHex, true, 0, revResult);
         if (ans) {
+            str_lower(revResult);
+
             // test for match
             if (memcmp(revResult, inCRC, crcChars) == 0) {
-                PrintAndLogEx(SUCCESS, "\nfound possible match\nmodel reversed: %s | value: %s\n", Models[i], revResult);
+                PrintAndLogEx(SUCCESS, "model reversed... " _YELLOW_("%s"), Models[i]);
+                PrintAndLogEx(SUCCESS, "value... %s\n", revResult);
                 // optional - stop searching if found...
                 found = true;
             } else {
                 if (crcChars > 2) {
                     char *swapEndian = SwapEndianStr(revResult, crcChars, crcChars);
                     if (memcmp(swapEndian, inCRC, crcChars) == 0) {
-                        PrintAndLogEx(SUCCESS, "\nfound possible match\nmodel reversed: %s | value endian swapped: %s\n", Models[i], swapEndian);
+                        PrintAndLogEx(SUCCESS, "model reversed... " _YELLOW_("%s"), Models[i]);
+                        PrintAndLogEx(SUCCESS, "value endian swapped... %s\n", swapEndian);
                         // optional - stop searching if found...
                         found = true;
                     }
@@ -492,26 +531,29 @@ static int CmdrevengSearch(const char *Cmd) {
         free(Models[i]);
     }
 
-    if (!found) PrintAndLogEx(FAILED, "\nno matches found\n");
-    return 1;
+    if (found == false) {
+        PrintAndLogEx(FAILED, "\nno matches found\n");
+    }
+    return PM3_SUCCESS;
 }
 
 int CmdCrc(const char *Cmd) {
-    char name[] = {"reveng "};
-    char Cmd2[100 + 7];
-    memcpy(Cmd2, name, 7);
-    memcpy(Cmd2 + 7, Cmd, 100);
+    char c[100 + 7];
+    snprintf(c, sizeof(c), "reveng ");
+    snprintf(c + strlen(c), sizeof(c) - strlen(c), Cmd, strlen(Cmd));
+
     char *argv[MAX_ARGS];
-    int argc = split(Cmd2, argv);
+    int argc = split(c, argv);
 
     if (argc == 3 && memcmp(argv[1], "-g", 2) == 0) {
         CmdrevengSearch(argv[2]);
     } else {
         reveng_main(argc, argv);
     }
+
     for (int i = 0; i < argc; ++i) {
         free(argv[i]);
     }
-    return 0;
+    return PM3_SUCCESS;
 }
 

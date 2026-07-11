@@ -1,9 +1,18 @@
 //-----------------------------------------------------------------------------
-// Christian Herrmann, 2020
+// Copyright (C) Christian Herrmann, 2020
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // main code for HID collector aka IceHID by Iceman
 //-----------------------------------------------------------------------------
@@ -36,7 +45,7 @@
  *
  * To retrieve log file from flash:
  *
- * 1. mem spiffs dump o lf_hidcollect.log f lf_hidcollect.log
+ * 1. mem spiffs dump -s lf_hidcollect.log -d lf_hidcollect.log
  *    Copies log file from flash to your client.
  *
  * 2. exit the Proxmark3 client
@@ -48,7 +57,7 @@
  *
  * To delete the log file from flash:
  *
- * 1. mem spiffs remove lf_hidcollect.log
+ * 1. mem spiffs remove -f lf_hidcollect.log
  */
 
 #define LF_HIDCOLLECT_LOGFILE "lf_hidcollect.log"
@@ -57,7 +66,7 @@
 static void DownloadLogInstructions(void) {
     Dbprintf("");
     Dbprintf("[=] To get the logfile from flash and display it:");
-    Dbprintf("[=] " _YELLOW_("1.") " mem spiffs dump o "LF_HIDCOLLECT_LOGFILE" f "LF_HIDCOLLECT_LOGFILE);
+    Dbprintf("[=] " _YELLOW_("1.") " mem spiffs dump -s "LF_HIDCOLLECT_LOGFILE" -d "LF_HIDCOLLECT_LOGFILE);
     Dbprintf("[=] " _YELLOW_("2.") " exit proxmark3 client");
     Dbprintf("[=] " _YELLOW_("3.") " cat "LF_HIDCOLLECT_LOGFILE);
 }
@@ -96,8 +105,9 @@ static uint32_t IceEM410xdemod(void) {
         return PM3_ESOFT;
     }
 
-    errCnt = Em410xDecode(dest, &size, &idx, &hi, &lo);
-    if (errCnt != 1) {
+    int type = Em410xDecode(dest, &size, &idx, &hi, &lo);
+    // Did we find a Short EM or a Long EM?
+    if ((type < 0) || ((type & (0x1 | 0x2)) == 0)) {
         BigBuf_free();
         return PM3_ESOFT;
     }
@@ -353,21 +363,21 @@ void RunMod(void) {
 
         // since we steal 12800 from bigbuffer, no need to sample it.
         size_t size = MIN(28000, BigBuf_max_traceLen());
-        DoAcquisition_config(false, size);
+        DoAcquisition_config(false, size, true);
         res = IceHIDDemod();
         if (res == PM3_SUCCESS) {
             LED_A_OFF();
             continue;
         }
 
-        DoAcquisition_config(false, size);
+        DoAcquisition_config(false, size, true);
         res = IceAWIDdemod();
         if (res == PM3_SUCCESS) {
             LED_A_OFF();
             continue;
         }
 
-        DoAcquisition_config(false, size);
+        DoAcquisition_config(false, size, true);
         res = IceIOdemod();
         if (res == PM3_SUCCESS) {
             LED_A_OFF();
@@ -375,7 +385,7 @@ void RunMod(void) {
         }
 
         size = MIN(20000, BigBuf_max_traceLen());
-        DoAcquisition_config(false, size);
+        DoAcquisition_config(false, size, true);
         res = IceEM410xdemod();
         if (res == PM3_SUCCESS) {
             LED_A_OFF();

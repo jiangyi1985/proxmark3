@@ -1,24 +1,22 @@
-/* roca.c - ROCA (CVE-2017-15361) fingerprint checker.
- * Written by Rob Stradling (based on https://github.com/crocs-muni/roca/blob/master/roca/detect.py)
- * Copyright (C) 2017-2018 Sectigo Limited
- * modified 2018 iceman  (dropped openssl bignum,  now use mbedtls lib)
- * modified 2018 merlok
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
 //-----------------------------------------------------------------------------
-// EMV roca commands
+// Borrowed initially from https://gist.github.com/robstradling/f525d423c79690b72e650e2ad38a161d
+// Copyright (C) 2017-2018 Rob Stradling
+// Copyright (C) 2017-2018 Sectigo Limited
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
+// roca.c - ROCA (CVE-2017-15361) fingerprint checker.
 //-----------------------------------------------------------------------------
 
 #include "emv_roca.h"
@@ -71,7 +69,8 @@ static mbedtls_mpi_uint mpi_get_uint(const mbedtls_mpi *X) {
     if (X->n == 1 && X->s > 0) {
         return X->p[0];
     }
-    printf("ZERRRRO!!!\n");
+
+    PrintAndLogEx(WARNING, "ZERRRRO!!!\n");
     return 0;
 }
 
@@ -82,7 +81,7 @@ static void print_mpi(const char *msg, int radix, const mbedtls_mpi *X) {
     size_t len = 0;
 
     mbedtls_mpi_write_string(X, radix, Xchar, sizeof(Xchar), &len);
-    printf("%s[%zu] %s\n", msg, len, Xchar);
+    PrintAndLogEx(INFO, "%s[%zu] %s\n", msg, len, Xchar);
 }
 */
 bool emv_rocacheck(const unsigned char *buf, size_t buflen, bool verbose) {
@@ -118,15 +117,17 @@ bool emv_rocacheck(const unsigned char *buf, size_t buflen, bool verbose) {
 
         MBEDTLS_MPI_CHK(mbedtls_mpi_shift_l(&g_one, mpi_get_uint(&t_temp)));
 
-        if (bitand_is_zero(&g_one, &prints[i])) {
-            if (verbose)
-                PrintAndLogEx(FAILED, "No fingerprint found.\n");
-            goto cleanup;
-        }
-
-        mbedtls_mpi_free(&g_one);
         mbedtls_mpi_free(&t_temp);
         mbedtls_mpi_free(&t_prime);
+
+        if (bitand_is_zero(&g_one, &prints[i])) {
+            if (verbose) {
+                PrintAndLogEx(FAILED, "No fingerprint found.\n");
+            }
+            mbedtls_mpi_free(&g_one);
+            goto cleanup;
+        }
+        mbedtls_mpi_free(&g_one);
     }
 
     ret = true;
@@ -152,10 +153,10 @@ int roca_self_test(void) {
 
     int ret = 0;
     if (emv_rocacheck(keyp, 64, false)) {
-        PrintAndLogEx(SUCCESS, "Weak modulus   [ %s ]", _GREEN_("PASS"));
+        PrintAndLogEx(SUCCESS, "Weak modulus   ( %s )", _GREEN_("ok"));
     } else {
         ret++;
-        PrintAndLogEx(FAILED, "Weak modulus   [ %s ]", _RED_("Fail"));
+        PrintAndLogEx(FAILED, "Weak modulus   ( %s )", _RED_("fail"));
     }
 
     // negative
@@ -166,9 +167,9 @@ int roca_self_test(void) {
 
     if (emv_rocacheck(keyn, 64, false)) {
         ret++;
-        PrintAndLogEx(FAILED, "Strong modulus [ %s ]", _RED_("Fail"));
+        PrintAndLogEx(FAILED, "Strong modulus ( %s )", _RED_("fail"));
     } else {
-        PrintAndLogEx(SUCCESS, "Strong modulus [ %s ]", _GREEN_("PASS"));
+        PrintAndLogEx(SUCCESS, "Strong modulus ( %s )", _GREEN_("ok"));
     }
     return ret;
 }

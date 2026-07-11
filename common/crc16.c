@@ -1,7 +1,17 @@
 //-----------------------------------------------------------------------------
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // CRC16
 //-----------------------------------------------------------------------------
@@ -31,23 +41,22 @@ void init_table(CrcType_t crctype) {
         case CRC_14443_B:
         case CRC_15693:
         case CRC_ICLASS:
+        case CRC_CRYPTORF:
+        case CRC_KERMIT:
             generate_table(CRC16_POLY_CCITT, true);
             break;
         case CRC_FELICA:
         case CRC_XMODEM:
+        case CRC_CCITT:
+        case CRC_11784:
+        case CRC_PHILIPS:
             generate_table(CRC16_POLY_CCITT, false);
             break;
         case CRC_LEGIC:
             generate_table(CRC16_POLY_LEGIC, true);
             break;
-        case CRC_CCITT:
-            generate_table(CRC16_POLY_CCITT, false);
-            break;
-        case CRC_KERMIT:
-            generate_table(CRC16_POLY_CCITT, true);
-            break;
-        case CRC_11784:
-            generate_table(CRC16_POLY_CCITT, false);
+        case CRC_LEGIC_16:
+            generate_table(CRC16_POLY_LEGIC_16, true);
             break;
         case CRC_NONE:
             crc_table_init = false;
@@ -171,6 +180,7 @@ void compute_crc(CrcType_t ct, const uint8_t *d, size_t n, uint8_t *first, uint8
         case CRC_14443_A:
             crc = crc16_a(d, n);
             break;
+        case CRC_CRYPTORF:
         case CRC_14443_B:
         case CRC_15693:
             crc = crc16_x25(d, n);
@@ -189,11 +199,15 @@ void compute_crc(CrcType_t ct, const uint8_t *d, size_t n, uint8_t *first, uint8
             crc = crc16_kermit(d, n);
             break;
         case CRC_11784:
-            crc = crc16_fdx(d, n);
+            crc = crc16_fdxb(d, n);
             break;
         case CRC_LEGIC:
+        case CRC_LEGIC_16:
             // TODO
             return;
+        case CRC_PHILIPS:
+            crc = crc16_philips(d, n);
+            break;
         case CRC_NONE:
             return;
     }
@@ -209,6 +223,7 @@ uint16_t Crc16ex(CrcType_t ct, const uint8_t *d, size_t n) {
     switch (ct) {
         case CRC_14443_A:
             return crc16_a(d, n);
+        case CRC_CRYPTORF:
         case CRC_14443_B:
         case CRC_15693:
             return crc16_x25(d, n);
@@ -222,10 +237,13 @@ uint16_t Crc16ex(CrcType_t ct, const uint8_t *d, size_t n) {
         case CRC_KERMIT:
             return crc16_kermit(d, n);
         case CRC_11784:
-            return crc16_fdx(d, n);
+            return crc16_fdxb(d, n);
         case CRC_LEGIC:
+        case CRC_LEGIC_16:
             // TODO
             return 0;
+        case CRC_PHILIPS:
+            return crc16_philips(d, n);
         case CRC_NONE:
         default:
             break;
@@ -252,6 +270,7 @@ bool check_crc(CrcType_t ct, const uint8_t *d, size_t n) {
     switch (ct) {
         case CRC_14443_A:
             return (crc16_a(d, n) == 0);
+        case CRC_CRYPTORF:
         case CRC_14443_B:
             return (crc16_x25(d, n) == X25_CRC_CHECK);
         case CRC_15693:
@@ -266,10 +285,13 @@ bool check_crc(CrcType_t ct, const uint8_t *d, size_t n) {
         case CRC_KERMIT:
             return (crc16_kermit(d, n) == 0);
         case CRC_11784:
-            return (crc16_fdx(d, n) == 0);
+            return (crc16_fdxb(d, n) == 0);
         case CRC_LEGIC:
+        case CRC_LEGIC_16:
             // TODO
             return false;
+        case CRC_PHILIPS:
+            return (crc16_philips(d, n) == 0);
         case CRC_NONE:
         default:
             break;
@@ -284,7 +306,7 @@ uint16_t crc16_ccitt(uint8_t const *d, size_t n) {
 
 // FDX-B ISO11784/85) uses KERMIT/CCITT
 // poly 0x xx  init=0x000  refin=false  refout=true  xorout=0x0000 ...
-uint16_t crc16_fdx(uint8_t const *d, size_t n) {
+uint16_t crc16_fdxb(uint8_t const *d, size_t n) {
     return crc16_fast(d, n, 0x0000, false, true);
 }
 
@@ -326,6 +348,10 @@ uint16_t crc16_iclass(uint8_t const *d, size_t n) {
 // This CRC-16 is used in Legic Advant systems.
 // poly=0xB400,  init=depends  refin=true  refout=true  xorout=0x0000  check=  name="CRC-16/LEGIC"
 uint16_t crc16_legic(uint8_t const *d, size_t n, uint8_t uidcrc) {
-    uint16_t initial = uidcrc << 8 | uidcrc;
-    return crc16_fast(d, n, initial, true, true);
+    uint16_t initial = (uidcrc << 8 | uidcrc);
+    return crc16_fast(d, n, initial, true, false);
+}
+
+uint16_t crc16_philips(uint8_t const *d, size_t n) {
+    return crc16_fast(d, n, 0x49A3, false, false);
 }

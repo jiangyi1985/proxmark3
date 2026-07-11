@@ -1,9 +1,17 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2020 tharexde
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Low frequency EM4x50 structs
 //-----------------------------------------------------------------------------
@@ -11,7 +19,11 @@
 #ifndef EM4X50_H__
 #define EM4X50_H__
 
+#include "common.h"
+#include "bruteforce.h"
+
 #define EM4X50_NO_WORDS             34
+#define EM4X50_SIZE_WORD            4
 
 // special words
 #define EM4X50_DEVICE_PASSWORD      0
@@ -33,33 +45,41 @@
 #define FIRST_WORD_WRITE_INHIBITED  2       // third byte
 #define LAST_WORD_WRITE_INHIBITED   3       // fourth byte
 
+// commands
+#define EM4X50_COMMAND_LOGIN                0x01
+#define EM4X50_COMMAND_RESET                0x80
+#define EM4X50_COMMAND_WRITE                0x12
+#define EM4X50_COMMAND_WRITE_PASSWORD       0x11
+#define EM4X50_COMMAND_SELECTIVE_READ       0x0A
+#define EM4X50_COMMAND_STANDARD_READ        0x02 // virtual command
+
 // misc
-#define STATUS_NO_WORDS             0xfc
-#define STATUS_SUCCESS              0x2
-#define STATUS_LOGIN                0x1
-#define NO_CHARS_MAX                400
-#define TIMEOUT                     2000
+#define EM4X50_TIMEOUT_CMD                 3000
+#define EM4X50_DUMP_FILESIZE               136
 
 typedef struct {
     bool addr_given;
     bool pwd_given;
-    bool newpwd_given;
-    uint8_t password[4];
-    uint8_t new_password[4];
-    uint8_t addresses[4];
-    uint8_t address;
-    uint8_t word[4];
-} em4x50_data_t;
+    uint32_t password1;
+    uint32_t password2;
+    uint32_t word;
+    uint32_t addresses;
+    bruteforce_mode_t bruteforce_mode;
+    bruteforce_charset_t bruteforce_charset;
+} PACKED em4x50_data_t;
 
 typedef struct {
     uint8_t byte[4];
-    uint8_t row_parity[4];
-    uint8_t col_parity;
-    uint8_t stopbit;
-    bool rparity[4];
-    bool cparity[8];
-    bool stopparity;
-    bool parity;
-} em4x50_word_t;
+} PACKED em4x50_word_t;
+
+typedef struct {
+    uint8_t count;
+    uint32_t *words;
+} PACKED em4x50_read_data_response_t;
+
+// Global variables...
+extern bool g_Login;
+extern bool g_WritePasswordProcess;
+extern uint32_t g_Password;
 
 #endif /* EM4X50_H__ */

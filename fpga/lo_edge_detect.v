@@ -1,9 +1,17 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2014 iZsh <izsh at fail0verflow.com>
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 //
 // There are two modes:
@@ -16,27 +24,35 @@
 // Output:
 // - ssp_frame (wired to TIOA1 on the arm) for the edge detection/state
 // - ssp_clk: cross_lo
-`include "lp20khz_1MSa_iir_filter.v"
-`include "lf_edge_detect.v"
 
 module lo_edge_detect(
-    input pck0, input pck_divclk,
-    output pwr_lo, output pwr_hi,
-    output pwr_oe1, output pwr_oe2, output pwr_oe3, output pwr_oe4,
-    input [7:0] adc_d, output adc_clk,
-    output ssp_frame, input ssp_dout, output ssp_clk,
+    input pck0,
+    input pck_divclk,
+    input [7:0] adc_d,
     input cross_lo,
-    output dbg,
     input lf_field,
-    input lf_ed_toggle_mode, input [7:0] lf_ed_threshold
+    input lf_ed_toggle_mode,
+    input [7:0] lf_ed_threshold,
+    input ssp_dout,
+
+    output ssp_frame,
+    output ssp_clk,
+    output adc_clk,
+    output pwr_lo,
+    output pwr_hi,
+    output pwr_oe1,
+    output pwr_oe2,
+    output pwr_oe3,
+    output pwr_oe4,
+    output debug
 );
 
 wire tag_modulation = ssp_dout & !lf_field;
 wire reader_modulation = !ssp_dout & lf_field & pck_divclk;
 
 // No logic, straight through.
-assign pwr_oe1 = 1'b0;                      // not used in LF mode
-assign pwr_oe3 = 1'b0;                      // base antenna load = 33 Ohms
+assign pwr_oe1 = 1'b0; // not used in LF mode
+assign pwr_oe3 = 1'b0; // base antenna load = 33 Ohms
 // when modulating, add another 33 Ohms and 10k Ohms in parallel:
 assign pwr_oe2 = tag_modulation;
 assign pwr_oe4 = tag_modulation;
@@ -49,18 +65,34 @@ assign pwr_hi = 1'b0;
 wire data_rdy;
 wire [7:0] adc_filtered;
 assign adc_clk = pck0;
-lp20khz_1MSa_iir_filter adc_filter(pck0, adc_d, data_rdy, adc_filtered);
+
+lp20khz_1MSa_iir_filter adc_filter(
+    .clk   (pck0),
+    .adc_d (adc_d),
+    .rdy   (data_rdy),
+    .out   (adc_filtered)
+);
 
 // detect edges
 wire [7:0] high_threshold, highz_threshold, lowz_threshold, low_threshold;
 wire [7:0] max, min;
 wire edge_state, edge_toggle;
-lf_edge_detect lf_ed(pck0, adc_filtered, lf_ed_threshold,
-    max, min,
-    high_threshold, highz_threshold, lowz_threshold, low_threshold,
-    edge_state, edge_toggle);
 
-assign dbg = lf_ed_toggle_mode ? edge_toggle : edge_state;
+lf_edge_detect lf_ed(
+    .clk             (pck0),
+    .adc_d           (adc_filtered),
+    .lf_ed_threshold (lf_ed_threshold),
+    .max             (max),
+    .min             (min),
+    .high_threshold  (high_threshold),
+    .highz_threshold (highz_threshold),
+    .lowz_threshold  (lowz_threshold),
+    .low_threshold   (low_threshold),
+    .edge_state      (edge_state),
+    .edge_toggle     (edge_toggle)
+);
+
+assign debug = lf_ed_toggle_mode ? edge_toggle : edge_state;
 
 assign ssp_frame = lf_ed_toggle_mode ? edge_toggle : edge_state;
 

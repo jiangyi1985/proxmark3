@@ -26,22 +26,32 @@
 *.DS_Store
 *.exe
 *.dsym
-version.c
+version_pm3.c
 *.json
 *.old
 *.swp
 *.json.bak
 *.pyc
+*.bmp
+originalitysig.csv
 
 # new build file for add-ons.
 #Makefile.platform
+Makefile.platform.*
+!Makefile.platform.sample
+
 # Cache for detecting platform def changes
 .Makefile.options.cache
 
 # cmake
+CMakeFiles/
+deps/
+client/CMakeFiles/
+client/deps/
 client/build/
 client/android/build/
-client/deps/bzip2/
+CMakeCache.txt
+*.cmake
 
 # Coverity
 cov-int/
@@ -52,6 +62,7 @@ cov-int/
 
 !client/resources/hardnested/*.bin
 !client/resources/hardnested_tables/*.z
+client/src/ui/ui_image.h
 client/src/ui/ui_overlays.h
 client/deps/reveng/bmptst
 
@@ -65,19 +76,21 @@ luac
 tools/fpga_compress/fpga_compress
 tools/mfkey/mfkey32
 tools/mfkey/mfkey64
+tools/mfkey/staticnested
 tools/nonce2key/nonce2key
+tools/cryptorf/cm
+tools/cryptorf/sm
+tools/cryptorf/sma
+tools/cryptorf/sma_multi
+tools/mf_nonce_brute/mf_nonce_brute
+tools/mf_nonce_brute/mf_trace_brute
+tools/jtag_openocd/openocd_configuration
+tools/mfd_aes_brute/mfd_aes_brute
+tools/mfd_aes_brute/mfd_multi_brute
+tools/mfd_aes_brute/brute_key
+!tools/lena.bmp
 
-fpga/*
-!fpga/tests
-!fpga/fpga_lf.bit
-!fpga/fpga_hf.bit
-!fpga/*.v
-!fpga/Makefile
-!fpga/fpga.ucf
-!fpga/xst_lf.scr
-!fpga/xst_hf.scr
-!fpga/go.bat
-!fpga/sim.tcl
+fpga/__build*
 
 # offcial dumps folder
 dumps/*
@@ -88,18 +101,30 @@ client/traces/*
 client/dumps/*
 *.ice
 *.new
-tools/mf_nonce_brute/mf_nonce_brute
-tools/andrew/*
-tools/jtag_openocd/openocd_configuration
-ppls patches/*
 *- Copy.*
+/EF_*
 
 client/lualibs/mfc_default_keys.lua
 client/lualibs/pm3_cmd.lua
 # recompiled
 fpga_version_info.c
 
+# log / history
 .proxmark3/*
 
 # .tmp files are created during compilation
 *.tmp
+
+# VSCode files
+!.vscode/templates/*.json
+!.vscode/extensions.json
+!.vscode/tasks.json
+
+# docs
+!doc/*.json
+
+# local codeql
+_codeql*
+/codeql
+
+.vs/*

@@ -1,9 +1,17 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2010 Hector Martin "marcan" <marcan@marcansoft.com>
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // ELF file flasher
 //-----------------------------------------------------------------------------
@@ -21,6 +29,7 @@
 #include "at91sam7s512.h"
 #include "util_posix.h"
 #include "comms.h"
+#include "commonutil.h"
 
 #define FLASH_START            0x100000
 
@@ -76,12 +85,13 @@ static int chipid_to_mem_avail(uint32_t iChipID) {
 
 // Turn PHDRs into flasher segments, checking for PHDR sanity and merging adjacent
 // unaligned segments if needed
-static int build_segs_from_phdrs(flash_file_t *ctx, FILE *fd, Elf32_Phdr *phdrs, uint16_t num_phdrs, uint32_t flash_end) {
-    Elf32_Phdr *phdr = phdrs;
+static int build_segs_from_phdrs(flash_file_t *ctx, uint32_t flash_size) {
+    uint32_t flash_end  = FLASH_START + flash_size;
+    Elf32_Phdr_t *phdr = ctx->phdrs;
     flash_seg_t *seg;
     uint32_t last_end = 0;
 
-    ctx->segments = calloc(sizeof(flash_seg_t) * num_phdrs, sizeof(uint8_t));
+    ctx->segments = calloc(sizeof(flash_seg_t) * ctx->num_phdrs, sizeof(uint8_t));
     if (!ctx->segments) {
         PrintAndLogEx(ERR, "Out of memory");
         return PM3_EMALLOC;
@@ -90,7 +100,7 @@ static int build_segs_from_phdrs(flash_file_t *ctx, FILE *fd, Elf32_Phdr *phdrs,
     seg = ctx->segments;
 
     PrintAndLogEx(SUCCESS, "Loading usable ELF segments:");
-    for (int i = 0; i < num_phdrs; i++) {
+    for (int i = 0; i < ctx->num_phdrs; i++) {
         if (le32(phdr->p_type) != PT_LOAD) {
             phdr++;
             continue;
@@ -122,6 +132,10 @@ static int build_segs_from_phdrs(flash_file_t *ctx, FILE *fd, Elf32_Phdr *phdrs,
         }
         if (paddr < FLASH_START || (paddr + filesz) > flash_end) {
             PrintAndLogEx(ERR, "Error: PHDR is not contained in Flash");
+            if ((paddr + filesz) > flash_end) {
+                PrintAndLogEx(ERR, "Firmware is probably too big for your device");
+                PrintAndLogEx(ERR, "See README.md for information on compiling for platforms with 256KB of flash memory");
+            }
             return PM3_EFILE;
         }
         if (vaddr >= FLASH_START && vaddr < flash_end && (flags & PF_W)) {
@@ -136,11 +150,7 @@ static int build_segs_from_phdrs(flash_file_t *ctx, FILE *fd, Elf32_Phdr *phdrs,
             PrintAndLogEx(ERR, "Error: Out of memory");
             return PM3_EMALLOC;
         }
-        if (fseek(fd, offset, SEEK_SET) < 0 || fread(data, 1, filesz, fd) != filesz) {
-            PrintAndLogEx(ERR, "Error while reading PHDR payload");
-            free(data);
-            return PM3_EFILE;
-        }
+        memcpy(data, ctx->elf + offset, filesz);
 
         uint32_t block_offset = paddr & (BLOCK_SIZE - 1);
         if (block_offset) {
@@ -196,7 +206,8 @@ static int build_segs_from_phdrs(flash_file_t *ctx, FILE *fd, Elf32_Phdr *phdrs,
 }
 
 // Sanity check segments and check for bootloader writes
-static int check_segs(flash_file_t *ctx, int can_write_bl, uint32_t flash_end) {
+static int check_segs(flash_file_t *ctx, int can_write_bl, uint32_t flash_size) {
+    uint32_t flash_end  = FLASH_START + flash_size;
     for (int i = 0; i < ctx->num_segs; i++) {
         flash_seg_t *seg = &ctx->segments[i];
 
@@ -224,92 +235,164 @@ static int check_segs(flash_file_t *ctx, int can_write_bl, uint32_t flash_end) {
     return PM3_SUCCESS;
 }
 
-// Load an ELF file and prepare it for flashing
-int flash_load(flash_file_t *ctx, const char *name, int can_write_bl, int flash_size) {
+static int print_and_validate_version(struct version_information_t *vi) {
+    if (vi->magic != VERSION_INFORMATION_MAGIC) {
+        return PM3_EFILE;
+    }
+
+    // same limit as for ARM image
+    char temp[PM3_CMD_DATA_SIZE - 12] = {0};
+    FormatVersionInformation(temp, sizeof(temp), "", vi);
+    PrintAndLogEx(SUCCESS, _CYAN_("ELF file version") _YELLOW_(" %s"), temp);
+
+    if (strlen(g_version_information.armsrc) == 9) {
+        if (strncmp(vi->armsrc, g_version_information.armsrc, 9) != 0) {
+            PrintAndLogEx(WARNING, _RED_("ARM firmware does not match the source at the time the client was compiled"));
+            return PM3_EINVARG;
+        } else {
+            return PM3_SUCCESS;
+        }
+    }
+    return PM3_EUNDEF;
+}
+
+// Load an ELF file for flashing
+int flash_load(flash_file_t *ctx, bool force) {
     FILE *fd;
-    Elf32_Ehdr ehdr;
-    Elf32_Phdr *phdrs = NULL;
-    uint16_t num_phdrs;
-    uint32_t flash_end  = FLASH_START + flash_size;
+    Elf32_Ehdr_t *ehdr;
+    Elf32_Shdr_t *shdrs = NULL;
+    uint8_t *shstr = NULL;
+    struct version_information_t *vi = NULL;
     int res = PM3_EUNDEF;
 
-    fd = fopen(name, "rb");
+    fd = fopen(ctx->filename, "rb");
     if (!fd) {
-        PrintAndLogEx(ERR, _RED_("Could not open file") " %s  >>> ", name);
+        PrintAndLogEx(ERR, _RED_("Could not open file") " %s  >>> ", ctx->filename);
         res = PM3_EFILE;
         goto fail;
     }
 
-    PrintAndLogEx(SUCCESS, _CYAN_("Loading ELF file") _YELLOW_(" %s"), name);
+    PrintAndLogEx(SUCCESS, _CYAN_("Loading ELF file") _YELLOW_(" %s"), ctx->filename);
 
-    if (fread(&ehdr, sizeof(ehdr), 1, fd) != 1) {
-        PrintAndLogEx(ERR, "Error while reading ELF file header");
+    // get filesize in order to malloc memory
+    fseek(fd, 0, SEEK_END);
+    long fsize = ftell(fd);
+    fseek(fd, 0, SEEK_SET);
+
+    if (fsize <= 0) {
+        PrintAndLogEx(ERR, "Error, when getting filesize");
+        res = PM3_EFILE;
+        fclose(fd);
+        goto fail;
+    }
+
+    ctx->elf = calloc(fsize + 1, sizeof(uint8_t));
+    if (!ctx->elf) {
+        PrintAndLogEx(ERR, "Error, cannot allocate memory");
+        res = PM3_EMALLOC;
+        fclose(fd);
+        goto fail;
+    }
+
+    size_t bytes_read = fread(ctx->elf, 1, fsize, fd);
+    fclose(fd);
+
+    if (bytes_read != fsize) {
+        PrintAndLogEx(ERR, "Error, bytes read mismatch file size");
         res = PM3_EFILE;
         goto fail;
     }
-    if (memcmp(ehdr.e_ident, elf_ident, sizeof(elf_ident))
-            || le32(ehdr.e_version) != 1) {
+
+    ehdr = (Elf32_Ehdr_t *)ctx->elf;
+    if (memcmp(ehdr->e_ident, elf_ident, sizeof(elf_ident))
+            || le32(ehdr->e_version) != 1) {
         PrintAndLogEx(ERR, "Not an ELF file or wrong ELF type");
         res = PM3_EFILE;
         goto fail;
     }
-    if (le16(ehdr.e_type) != ET_EXEC) {
+
+    if (le16(ehdr->e_type) != ET_EXEC) {
         PrintAndLogEx(ERR, "ELF is not executable");
         res = PM3_EFILE;
         goto fail;
     }
-    if (le16(ehdr.e_machine) != EM_ARM) {
+
+    if (le16(ehdr->e_machine) != EM_ARM) {
         PrintAndLogEx(ERR, "Wrong ELF architecture");
         res = PM3_EFILE;
         goto fail;
     }
-    if (!ehdr.e_phnum || !ehdr.e_phoff) {
+
+    if (!ehdr->e_phnum || !ehdr->e_phoff) {
         PrintAndLogEx(ERR, "ELF has no PHDRs");
         res = PM3_EFILE;
         goto fail;
     }
-    if (le16(ehdr.e_phentsize) != sizeof(Elf32_Phdr)) {
+
+    if (le16(ehdr->e_phentsize) != sizeof(Elf32_Phdr_t)) {
         // could be a structure padding issue...
         PrintAndLogEx(ERR, "Either the ELF file or this code is made of fail");
         res = PM3_EFILE;
         goto fail;
     }
-    num_phdrs = le16(ehdr.e_phnum);
 
-    phdrs = calloc(le16(ehdr.e_phnum) * sizeof(Elf32_Phdr), sizeof(uint8_t));
-    if (!phdrs) {
-        PrintAndLogEx(ERR, "Out of memory");
-        res = PM3_EMALLOC;
-        goto fail;
-    }
-    if (fseek(fd, le32(ehdr.e_phoff), SEEK_SET) < 0) {
-        PrintAndLogEx(ERR, "Error while reading ELF PHDRs");
-        res = PM3_EFILE;
-        goto fail;
-    }
-    if (fread(phdrs, sizeof(Elf32_Phdr), num_phdrs, fd) != num_phdrs) {
-        res = PM3_EFILE;
-        PrintAndLogEx(ERR, "Error while reading ELF PHDRs");
-        goto fail;
-    }
+    ctx->num_phdrs = le16(ehdr->e_phnum);
+    ctx->phdrs = (Elf32_Phdr_t *)(ctx->elf + le32(ehdr->e_phoff));
+    shdrs = (Elf32_Shdr_t *)(ctx->elf + le32(ehdr->e_shoff));
+    shstr = ctx->elf + le32(shdrs[ehdr->e_shstrndx].sh_offset);
 
-    res = build_segs_from_phdrs(ctx, fd, phdrs, num_phdrs, flash_end);
+    for (uint16_t i = 0; i < le16(ehdr->e_shnum); i++) {
+
+        if (strcmp(((char *)shstr) + shdrs[i].sh_name, ".version_information") == 0) {
+            vi = (struct version_information_t *)(ctx->elf + le32(shdrs[i].sh_offset));
+            res = print_and_validate_version(vi);
+            break;
+        }
+
+        if (strcmp(((char *)shstr) + shdrs[i].sh_name, ".bootphase1") == 0) {
+            uint32_t offset;
+            memcpy(&offset, ctx->elf + le32(shdrs[i].sh_offset) + le32(shdrs[i].sh_size) - 4, sizeof(uint32_t));
+            if (offset >= le32(shdrs[i].sh_addr)) {
+                offset -= le32(shdrs[i].sh_addr);
+                if (offset < le32(shdrs[i].sh_size)) {
+                    vi = (struct version_information_t *)(ctx->elf + le32(shdrs[i].sh_offset) + offset);
+                    res = print_and_validate_version(vi);
+                }
+            }
+            break;
+        }
+    }
+    if (res == PM3_SUCCESS)
+        return res;
+
+    // We could not find proper version_information
+    if (res == PM3_EUNDEF)
+        PrintAndLogEx(WARNING, "Unable to check version_information");
+
+    if (force)
+        return PM3_SUCCESS;
+
+    PrintAndLogEx(INFO,  "Make sure to flash a correct and up-to-date version");
+    PrintAndLogEx(INFO,  "You can force flashing this firmware by using the option '--force'");
+fail:
+    flash_free(ctx);
+    return res;
+}
+
+// Prepare an ELF file for flashing
+int flash_prepare(flash_file_t *ctx, int can_write_bl, int flash_size) {
+    int res = PM3_EUNDEF;
+
+    res = build_segs_from_phdrs(ctx, flash_size);
     if (res != PM3_SUCCESS)
         goto fail;
-    res = check_segs(ctx, can_write_bl, flash_end);
+    res = check_segs(ctx, can_write_bl, flash_size);
     if (res != PM3_SUCCESS)
         goto fail;
 
-    free(phdrs);
-    fclose(fd);
-    ctx->filename = name;
     return PM3_SUCCESS;
 
 fail:
-    if (phdrs)
-        free(phdrs);
-    if (fd)
-        fclose(fd);
     flash_free(ctx);
     return res;
 }
@@ -344,7 +427,7 @@ static int get_proxmark_state(uint32_t *state) {
 }
 
 // Enter the bootloader to be able to start flashing
-static int enter_bootloader(char *serial_port_name) {
+static int enter_bootloader(char *serial_port_name, bool wait_appear) {
     uint32_t state;
     int ret;
 
@@ -369,12 +452,14 @@ static int enter_bootloader(char *serial_port_name) {
             SendCommandBL(CMD_HARDWARE_RESET, 0, 0, 0, NULL, 0);
             PrintAndLogEx(SUCCESS, "Press and hold down button NOW if your bootloader requires it.");
         }
-        msleep(100);
-        CloseProxmark();
+        msleep(200);
+        CloseProxmark(g_session.current_device);
         // Let time to OS to make the port disappear
         msleep(1000);
 
-        if (OpenProxmark(serial_port_name, true, 60, true, FLASHMODE_SPEED)) {
+        if (wait_appear == false) {
+            return PM3_SUCCESS;
+        } else if (OpenProxmark(&g_session.current_device, serial_port_name, true, 60, true, FLASHMODE_SPEED)) {
             PrintAndLogEx(NORMAL, _GREEN_(" found"));
             return PM3_SUCCESS;
         } else {
@@ -400,9 +485,23 @@ static int wait_for_ack(PacketResponseNG *ack) {
     return PM3_SUCCESS;
 }
 
+static bool gs_printed_msg = false;
 static void flash_suggest_update_bootloader(void) {
+    if (gs_printed_msg)
+        return;
+
     PrintAndLogEx(ERR, _RED_("It is recommended that you first" _YELLOW_(" update your bootloader") _RED_(" alone,")));
     PrintAndLogEx(ERR, _RED_("reboot the Proxmark3 then only update the main firmware") "\n");
+    PrintAndLogEx(NORMAL, "");
+    PrintAndLogEx(ERR, "------------- " _CYAN_("Follow these steps") " -------------------");
+    PrintAndLogEx(NORMAL, "");
+    PrintAndLogEx(ERR, " 1)   ./pm3-flash-bootrom");
+    PrintAndLogEx(ERR, " 2)   ./pm3-flash-fullimage");
+    PrintAndLogEx(ERR, " 3)   ./pm3");
+    PrintAndLogEx(NORMAL, "");
+    PrintAndLogEx(INFO, "---------------------------------------------------");
+    PrintAndLogEx(NORMAL, "");
+    gs_printed_msg = true;
 }
 
 static void flash_suggest_update_flasher(void) {
@@ -415,7 +514,7 @@ int flash_start_flashing(int enable_bl_writes, char *serial_port_name, uint32_t 
     uint32_t chipinfo = 0;
     int ret;
 
-    ret = enter_bootloader(serial_port_name);
+    ret = enter_bootloader(serial_port_name, true);
     if (ret != PM3_SUCCESS)
         return ret;
 
@@ -503,12 +602,21 @@ int flash_start_flashing(int enable_bl_writes, char *serial_port_name, uint32_t 
     return PM3_SUCCESS;
 }
 
+// Reboot into bootloader
+int flash_reboot_bootloader(char *serial_port_name, bool wait_appear) {
+    return enter_bootloader(serial_port_name, wait_appear);
+}
+
 static int write_block(uint32_t address, uint8_t *data, uint32_t length) {
     uint8_t block_buf[BLOCK_SIZE];
     memset(block_buf, 0xFF, BLOCK_SIZE);
     memcpy(block_buf, data, length);
     PacketResponseNG resp;
+#if defined ICOPYX
+    SendCommandBL(CMD_FINISH_WRITE, address, 0xff, 0x1fd, block_buf, length);
+#else
     SendCommandBL(CMD_FINISH_WRITE, address, 0, 0, block_buf, length);
+#endif
     int ret = wait_for_ack(&resp);
     if (ret && resp.oldarg[0]) {
         uint32_t lock_bits = resp.oldarg[0] >> 16;
@@ -523,12 +631,14 @@ static int write_block(uint32_t address, uint8_t *data, uint32_t length) {
     return ret;
 }
 
-const char ice[] =
+static const char ice[] =
     "...................................................................\n        @@@  @@@@@@@ @@@@@@@@ @@@@@@@@@@   @@@@@@  @@@  @@@\n"
     "        @@! !@@      @@!      @@! @@! @@! @@!  @@@ @@!@!@@@\n        !!@ !@!      @!!!:!   @!! !!@ @!@ @!@!@!@! @!@@!!@!\n"
     "        !!: :!!      !!:      !!:     !!: !!:  !!! !!:  !!!\n        :    :: :: : : :: :::  :      :    :   : : ::    : \n"
     _RED_("        .    .. .. . . .. ...  .      .    .   . . ..    . ")
     "\n...................................................................\n"
+    "...................................................................\n"
+    "...................................................................\n"
     ;
 
 // Write a file's segments to Flash
@@ -537,7 +647,7 @@ int flash_write(flash_file_t *ctx) {
 
     PrintAndLogEx(SUCCESS, "Writing segments for file: %s", ctx->filename);
 
-    bool filter_ansi = !session.supports_colors;
+    bool filter_ansi = !g_session.supports_colors;
 
     for (int i = 0; i < ctx->num_segs; i++) {
         flash_seg_t *seg = &ctx->segments[i];
@@ -577,7 +687,7 @@ int flash_write(flash_file_t *ctx) {
             }
             fflush(stdout);
         }
-        PrintAndLogEx(NORMAL, " " _GREEN_("OK"));
+        PrintAndLogEx(NORMAL, " " _GREEN_("ok"));
         fflush(stdout);
     }
     return PM3_SUCCESS;
@@ -587,6 +697,16 @@ int flash_write(flash_file_t *ctx) {
 void flash_free(flash_file_t *ctx) {
     if (!ctx)
         return;
+    if (ctx->filename != NULL) {
+        free(ctx->filename);
+        ctx->filename = NULL;
+    }
+    if (ctx->elf) {
+        free(ctx->elf);
+        ctx->elf = NULL;
+        ctx->phdrs = NULL;
+        ctx->num_phdrs = 0;
+    }
     if (ctx->segments) {
         for (int i = 0; i < ctx->num_segs; i++)
             free(ctx->segments[i].data);

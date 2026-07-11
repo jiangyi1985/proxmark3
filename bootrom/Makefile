@@ -1,7 +1,18 @@
 #-----------------------------------------------------------------------------
-# This code is licensed to you under the terms of the GNU GPL, version 2 or,
-# at your option, any later version. See the LICENSE.txt file for the text of
-# the license.
+# Copyright (C) Jonathan Westhues, Mar 2006
+# Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# See LICENSE.txt for the text of the license.
 #-----------------------------------------------------------------------------
 # Makefile for bootrom, see ../common_arm/Makefile.common for common settings
 #-----------------------------------------------------------------------------
@@ -13,7 +24,7 @@ THUMBSRC = usb_cdc.c \
            bootrom.c
 
 ASMSRC = ram-reset.s flash-reset.s
-VERSIONSRC = version.c
+VERSIONSRC = version_pm3.c
 
 ## There is a strange bug with the linker: Sometimes it will not emit the glue to call
 ## BootROM from ARM mode. The symbol is emitted, but the section will be filled with
@@ -23,10 +34,16 @@ VERSIONSRC = version.c
 # THUMBSRC :=
 
 # stdint.h provided locally until GCC 4.5 becomes C99 compliant
-APP_CFLAGS = -I. -ffunction-sections -fdata-sections
+APP_CFLAGS = -I. -ffunction-sections -fdata-sections -DAS_BOOTROM
 
-# stack-protect , no-pie reduces size on Gentoo Hardened 8.2 gcc,  no-common makes sure uninitalized vars doesn't end up in COMMON area
+# stack-protect , no-pie reduces size on Gentoo Hardened 8.2 gcc,  no-common makes sure uninitialized vars don't end up in COMMON area
 APP_CFLAGS += -fno-stack-protector -fno-pie -fno-common
+
+ifneq (,$(findstring WITH_FLASH,$(PLATFORM_DEFS)))
+	APP_CFLAGS += -DWITH_FLASH
+	APP_CFLAGS += -I../common_arm
+    THUMBSRC += flashmem.c ticks.c
+endif
 
 
 # Do not move this inclusion before the definition of {THUMB,ASM,ARM}SRC
@@ -36,15 +53,15 @@ INSTALLFW = $(OBJDIR)/bootrom.elf
 
 OBJS = $(OBJDIR)/bootrom.s19
 
-# version.c should be remade on every compilation
-version.c: default_version.c
-	$(info [=] GEN $@)
-	$(Q)$(SH) ../tools/mkversion.sh > $@ || $(PERL) ../tools/mkversion.pl > $@ || $(CP) $< $@
+# version_pm3.c should be checked on every compilation
+version_pm3.c: default_version_pm3.c .FORCE
+	$(info [=] CHECK $@)
+	$(Q)$(CP) $< $@
 
 all: showinfo $(OBJS)
 
 showinfo:
-	$(info compiler version:  $(shell $(CC) --version|head -n 1))
+	$(info compiler version:  $(shell $(CROSS_CC) --version|head -n 1))
 
 tarbin: $(OBJS)
 	$(info [=] GEN $@)
@@ -52,7 +69,7 @@ tarbin: $(OBJS)
 
 $(OBJDIR)/bootrom.elf: $(VERSIONOBJ) $(ASMOBJ) $(ARMOBJ) $(THUMBOBJ)
 	$(info [=] LD $@)
-	$(Q)$(CC) $(CROSS_LDFLAGS) -Wl,-T,ldscript-flash,-Map,$(patsubst %.elf,%.map,$@) -o $@ $^ $(LIBS)
+	$(Q)$(CROSS_LD) $(CROSS_LDFLAGS) -Wl,-T,ldscript-flash,-Map,$(patsubst %.elf,%.map,$@) -o $@ $^ $(LIBS)
 
 clean:
 	$(Q)$(RM) $(OBJDIR)$(PATHSEP)*.o
@@ -60,18 +77,18 @@ clean:
 	$(Q)$(RM) $(OBJDIR)$(PATHSEP)*.s19
 	$(Q)$(RM) $(OBJDIR)$(PATHSEP)*.map
 	$(Q)$(RM) $(OBJDIR)$(PATHSEP)*.d
-	$(Q)$(RM) version.c
+	$(Q)$(RM) version_pm3.c version.c
 
 install: all
 	$(info [@] Installing bootrom to $(DESTDIR)$(PREFIX)...)
-	$(Q)$(MKDIR) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLFWRELPATH)
-	$(Q)$(CP) $(INSTALLFW) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLFWRELPATH)
+	$(Q)$(INSTALLSUDO) $(MKDIR) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLFWRELPATH)
+	$(Q)$(INSTALLSUDO) $(CP) $(INSTALLFW) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLFWRELPATH)
 
 uninstall:
 	$(info [@] Uninstalling bootrom from $(DESTDIR)$(PREFIX)...)
-	$(Q)$(RM) $(foreach fw,$(INSTALLFW),$(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLFWRELPATH)$(PATHSEP)$(notdir $(fw)))
+	$(Q)$(INSTALLSUDO) $(RM) $(foreach fw,$(INSTALLFW),$(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLFWRELPATH)$(PATHSEP)$(notdir $(fw)))
 
-.PHONY: all clean help install showinfo
+.PHONY: all clean help install showinfo .FORCE
 help:
 	@echo Multi-OS Makefile, you are running on $(DETECTED_OS)
 	@echo Possible targets:

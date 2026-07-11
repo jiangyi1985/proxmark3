@@ -1,3 +1,18 @@
+#-----------------------------------------------------------------------------
+# Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# See LICENSE.txt for the text of the license.
+#-----------------------------------------------------------------------------
 # Usage:
 #  mkdir build
 #  cd build
@@ -18,6 +33,7 @@
 #    -DANDROID_NATIVE_API_LEVEL=android-19 \
 #    -DSKIPBT=1 -DSKIPPYTHON=1 -DSKIPPTHREAD=1 ..
 
+message(STATUS "CMake ${CMAKE_VERSION}")
 cmake_minimum_required(VERSION 3.10)
 project(proxmark3)
 SET (PM3_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
@@ -29,9 +45,10 @@ endif()
 find_package(PkgConfig)
 
 if (NOT SKIPQT EQUAL 1)
+
     if(APPLE AND EXISTS /usr/local/opt/qt5)
         # Homebrew installs Qt5 (up to at least 5.11.0) in
-        # /usr/local/qt5. Ensure that it can be found by CMake
+        # /usr/local/opt/qt5. Ensure that it can be found by CMake
         # since it is not in the default /usr/local prefix.
         # Add it to PATHS so that it doesn't override the
         # CMAKE_PREFIX_PATH environment variable.
@@ -39,6 +56,17 @@ if (NOT SKIPQT EQUAL 1)
         # e.g. find_package(Qt5Core ${QT_FIND_PACKAGE_OPTIONS})
         list(APPEND QT_FIND_PACKAGE_OPTIONS PATHS /usr/local/opt/qt5)
     endif(APPLE AND EXISTS /usr/local/opt/qt5)
+
+    if(APPLE AND EXISTS /opt/homebrew/opt/qt@5)
+        # Homebrew on Apple Silicon installs Qt5 in
+        # /opt/homebrew/opt/qt@5. Ensure that it can be found by CMake
+        # since it is not in the default /usr/local prefix.
+        # Add it to PATHS so that it doesn't override the
+        # CMAKE_PREFIX_PATH environment variable.
+        # QT_FIND_PACKAGE_OPTIONS should be passed to find_package,
+        # e.g. find_package(Qt5Core ${QT_FIND_PACKAGE_OPTIONS})
+        list(APPEND QT_FIND_PACKAGE_OPTIONS PATHS /opt/homebrew/opt/qt@5)
+    endif(APPLE AND EXISTS /opt/homebrew/opt/qt@5)
     set(QT_PACKAGELIST
         Qt5Core
         Qt5Widgets
@@ -65,23 +93,27 @@ endif (NOT SKIPPYTHON EQUAL 1)
 
 # If cross-compiled, we need to init source and build.
 if (CMAKE_TOOLCHAIN_FILE)
-    set(CFLAGS_EXTERNAL_LIB "CFLAGS=--target=${CMAKE_C_COMPILER_TARGET} -w")
+    if (ANDROID)
+        set(CFLAGS_EXTERNAL_LIB "CFLAGS=--target=${CMAKE_C_COMPILER_TARGET} -w")
+    endif (ANDROID)
     set(EMBED_READLINE ON)
     set(EMBED_BZIP2 ON)
+    set(EMBED_LZ4 ON)
+    set(EMBED_GD ON)
 endif (CMAKE_TOOLCHAIN_FILE)
 
-if (EMBED_READLINE OR EMBED_BZIP2)
+if (EMBED_READLINE OR EMBED_BZIP2 OR EMBED_LZ4 OR EMBED_GD)
     include(ExternalProject)
-endif (EMBED_READLINE OR EMBED_BZIP2)
+endif (EMBED_READLINE OR EMBED_BZIP2 OR EMBED_LZ4 OR EMBED_GD)
 
 if (NOT SKIPREADLINE EQUAL 1)
     if (APPLE)
-      find_path(READLINE_INCLUDE_DIRS readline/readline.h /usr/local/opt/readline/include /opt/local/include /opt/include /usr/local/include /usr/include NO_DEFAULT_PATH)
-      find_library(READLINE_LIBRARIES readline /usr/local/opt/readline/lib /opt/local/lib /opt/lib /usr/local/lib /usr/lib NO_DEFAULT_PATH)
+      find_path(READLINE_INCLUDE_DIRS readline/readline.h /usr/local/opt/readline/include /opt/local/include /opt/include /usr/local/include /usr/include /opt/homebrew/opt/readline/include NO_DEFAULT_PATH)
+      find_library(READLINE_LIBRARIES readline /usr/local/opt/readline/lib /opt/local/lib /opt/lib /usr/local/lib /usr/lib /opt/homebrew/opt/readline/lib NO_DEFAULT_PATH)
     endif (APPLE)
     if (EMBED_READLINE)
         ExternalProject_Add(ncurses
-            URL                   http://ftp.gnu.org/pub/gnu/ncurses/ncurses-6.0.tar.gz
+            URL                   http://ftp.gnu.org/pub/gnu/ncurses/ncurses-6.1.tar.gz
             PREFIX                deps/ncurses
             DOWNLOAD_DIR          ${CMAKE_CURRENT_SOURCE_DIR}/deps/ncurses
             CONFIGURE_COMMAND     ./configure CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} LD=${CMAKE_C_COMPILER} AR=${CMAKE_AR} RANLIB=${CMAKE_RANLIB} ${CFLAGS_EXTERNAL_LIB} --host=arm --disable-database  --with-fallbacks=ansi-generic,ansi-mini,color_xterm,dtterm,dumb,Eterm,Eterm-256color,Eterm-88color,eterm-color,gnome,gnome-256color,guru,hurd,iTerm.app,konsole,konsole-16color,konsole-256color,konsole-base,konsole-linux,konsole-solaris,konsole-vt100,kterm,kterm-color,linux,linux-16color,linux-basic,mac,mlterm,mlterm-256color,mrxvt,mrxvt-256color,mterm,mterm-ansi,mvterm,nsterm,nsterm-16color,nsterm-256color,pty,putty,putty-256color,putty-vt100,rxvt,rxvt-16color,rxvt-256color,rxvt-88color,rxvt-basic,rxvt-color,screen,screen-16color,screen-256color,simpleterm,st-16color,st-256color,st52,st52-color,stv52,tt,tt52,unknown,vt100,vt102,vte,vte-256color,xterm,xterm-16color,xterm-256color,xterm-88color,xterm-basic,xterm-bold,xterm-color,xterm-utf8,xterm-vt220,xterm-vt52,xterm1,xtermc,xtermm   --enable-termcap --without-ada --without-debug --without-dlsym --without-gpm --without-develop --without-tests --without-cxx-binding --with-termlib
@@ -93,7 +125,7 @@ if (NOT SKIPREADLINE EQUAL 1)
         ExternalProject_Add_StepTargets(ncurses configure build install)
 
         ExternalProject_Add(readline
-            URL                   ftp://ftp.gnu.org/gnu/readline/readline-7.0.tar.gz
+            URL                   ftp://ftp.gnu.org/gnu/readline/readline-8.2.tar.gz
             PREFIX                deps/readline
             DOWNLOAD_DIR          ${CMAKE_CURRENT_SOURCE_DIR}/deps/readline
             CONFIGURE_COMMAND     ./configure CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} LD=${CMAKE_C_COMPILER} AR=${CMAKE_AR} RANLIB=${CMAKE_RANLIB} ${CFLAGS_EXTERNAL_LIB} --host=arm --enable-static
@@ -112,6 +144,12 @@ if (NOT SKIPREADLINE EQUAL 1)
     if (READLINE_INCLUDE_DIRS AND READLINE_LIBRARIES)
         set(READLINE_FOUND ON)
     endif (READLINE_INCLUDE_DIRS AND READLINE_LIBRARIES)
+else (NOT SKIPREADLINE EQUAL 1)
+    if (NOT SKIPLINENOISE EQUAL 1)
+        if (EXISTS ${PM3_ROOT}/client/deps/linenoise/)
+            set(LINENOISE_LOCAL_FOUND ON)
+        endif (EXISTS ${PM3_ROOT}/client/deps/linenoise/)
+    endif (NOT SKIPLINENOISE EQUAL 1)
 endif (NOT SKIPREADLINE EQUAL 1)
 
 if (NOT SKIPJANSSONSYSTEM EQUAL 1)
@@ -128,12 +166,14 @@ if (NOT SKIPJANSSONSYSTEM EQUAL 1)
 endif (NOT SKIPJANSSONSYSTEM EQUAL 1)
 
 if(EMBED_BZIP2)
+    cmake_policy(SET CMP0114 NEW)
     set(BZIP2_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/deps/bzip2/src/bzip2)
+    # Specify SOURCE_DIR will cause some errors
     ExternalProject_Add(bzip2
         GIT_REPOSITORY        https://android.googlesource.com/platform/external/bzip2
         GIT_TAG               platform-tools-30.0.2
         PREFIX                deps/bzip2
-        SOURCE_DIR            ${CMAKE_CURRENT_SOURCE_DIR}/deps/bzip2
+        # SOURCE_DIR            ${CMAKE_CURRENT_SOURCE_DIR}/deps/bzip2
         CONFIGURE_COMMAND     mkdir -p ${BZIP2_BUILD_DIR} && git archive --format tar HEAD | tar -C ${BZIP2_BUILD_DIR} -x
         BUILD_IN_SOURCE       ON
         BUILD_COMMAND         make -C ${BZIP2_BUILD_DIR} -j4 CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} LD=${CMAKE_C_COMPILER} AR=${CMAKE_AR} RANLIB=${CMAKE_RANLIB} ${CFLAGS_EXTERNAL_LIB} libbz2.a
@@ -148,6 +188,55 @@ else(EMBED_BZIP2)
     find_package (BZip2 REQUIRED)
 endif(EMBED_BZIP2)
 
+if(EMBED_LZ4)
+    cmake_policy(SET CMP0114 NEW)
+    set(LZ4_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/deps/lz4/src/lz4)
+    # Specify SOURCE_DIR will cause some errors
+    ExternalProject_Add(lz4
+        GIT_REPOSITORY        https://android.googlesource.com/platform/external/lz4
+        GIT_TAG               platform-tools-30.0.2
+        PREFIX                deps/lz4
+        # SOURCE_DIR            ${CMAKE_CURRENT_SOURCE_DIR}/deps/lz4
+        CONFIGURE_COMMAND     mkdir -p ${LZ4_BUILD_DIR} && git archive --format tar HEAD | tar -C ${LZ4_BUILD_DIR} -x
+        BUILD_IN_SOURCE       ON
+        BUILD_COMMAND         make -C ${LZ4_BUILD_DIR}/lib -j4 CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} LD=${CMAKE_C_COMPILER} AR=${CMAKE_AR} RANLIB=${CMAKE_RANLIB} ${CFLAGS_EXTERNAL_LIB} liblz4.a
+        INSTALL_COMMAND       ""
+        LOG_DOWNLOAD          ON
+    )
+    ExternalProject_Add_StepTargets(lz4 configure build install)
+    set(LZ4_INCLUDE_DIRS ${CMAKE_CURRENT_BINARY_DIR}/deps/lz4/src/lz4/lib)
+    set(LZ4_LIBRARIES ${CMAKE_CURRENT_BINARY_DIR}/deps/lz4/src/lz4/lib/liblz4.a)
+    set(LZ4_FOUND ON)
+else(EMBED_LZ4)
+    find_path(LZ4_INCLUDE_DIRS lz4frame.h)
+    find_library(LZ4_LIBRARIES lz4)
+endif(EMBED_LZ4)
+
+if (LZ4_INCLUDE_DIRS AND LZ4_LIBRARIES)
+    set(LZ4_FOUND ON)
+endif (LZ4_INCLUDE_DIRS AND LZ4_LIBRARIES)
+
+if (NOT SKIPGD EQUAL 1)
+    if (EMBED_GD)
+        cmake_policy(SET CMP0114 NEW)
+        set(GD_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/deps/gd)
+        # Specify SOURCE_DIR will cause some errors
+        ExternalProject_Add(gd
+            URL                   https://github.com/libgd/libgd/releases/download/gd-2.3.3/libgd-2.3.3.tar.gz
+            URL_HASH              SHA256=dd3f1f0bb016edcc0b2d082e8229c822ad1d02223511997c80461481759b1ed2
+            PREFIX                deps/gd
+            CMAKE_ARGS            -DBUILD_SHARED_LIBS=OFF -DBUILD_STATIC_LIBS=ON -DENABLE_CPP=0 -DCMAKE_INSTALL_PREFIX=.
+            PATCH_COMMAND         cat ${CMAKE_CURRENT_SOURCE_DIR}/deps/gd-static.patch | patch -p1
+        )
+        ExternalProject_Add_StepTargets(gd configure build install)
+        set(GD_INCLUDE_DIRS ${GD_BUILD_DIR}/src/gd-build/include)
+        set(GD_LIBRARIES ${GD_BUILD_DIR}/src/gd-build/lib/libgd.a)
+        set(GD_FOUND ON)
+    else (EMBED_GD)
+        pkg_search_module(GD QUIET gdlib)
+    endif (EMBED_GD)
+endif (NOT SKIPGD EQUAL 1)
+
 if (NOT SKIPWHEREAMISYSTEM EQUAL 1)
     find_path(WHEREAMI_INCLUDE_DIRS whereami.h)
     find_library(WHEREAMI_LIBRARIES whereami)
@@ -161,7 +250,6 @@ add_subdirectory(${PM3_ROOT}/client/deps deps)
 set (TARGET_SOURCES
         ${PM3_ROOT}/common/commonutil.c
         ${PM3_ROOT}/common/util_posix.c
-        ${PM3_ROOT}/common/parity.c
         ${PM3_ROOT}/common/bucketsort.c
         ${PM3_ROOT}/common/crapto1/crapto1.c
         ${PM3_ROOT}/common/crapto1/crypto1.c
@@ -174,6 +262,8 @@ set (TARGET_SOURCES
         ${PM3_ROOT}/common/iso15693tools.c
         ${PM3_ROOT}/common/cardhelper.c
         ${PM3_ROOT}/common/generator.c
+        ${PM3_ROOT}/common/bruteforce.c
+        ${PM3_ROOT}/common/hitag2/hitag2_crypto.c
         ${PM3_ROOT}/client/src/crypto/asn1dump.c
         ${PM3_ROOT}/client/src/crypto/asn1utils.c
         ${PM3_ROOT}/client/src/crypto/libpcrypto.c
@@ -182,12 +272,10 @@ set (TARGET_SOURCES
         ${PM3_ROOT}/client/src/emv/test/cryptotest.c
         ${PM3_ROOT}/client/src/emv/test/dda_test.c
         ${PM3_ROOT}/client/src/emv/test/sda_test.c
-        ${PM3_ROOT}/client/src/emv/apduinfo.c
         ${PM3_ROOT}/client/src/emv/cmdemv.c
         ${PM3_ROOT}/client/src/emv/crypto.c
         ${PM3_ROOT}/client/src/emv/crypto_polarssl.c
         ${PM3_ROOT}/client/src/emv/dol.c
-        ${PM3_ROOT}/client/src/emv/dump.c
         ${PM3_ROOT}/client/src/emv/emv_pk.c
         ${PM3_ROOT}/client/src/emv/emv_pki.c
         ${PM3_ROOT}/client/src/emv/emv_pki_priv.c
@@ -200,22 +288,39 @@ set (TARGET_SOURCES
         ${PM3_ROOT}/client/src/fido/cbortools.c
         ${PM3_ROOT}/client/src/fido/cose.c
         ${PM3_ROOT}/client/src/fido/fidocore.c
+        ${PM3_ROOT}/client/src/iso7816/apduinfo.c
+        ${PM3_ROOT}/client/src/iso7816/iso7816core.c
+        ${PM3_ROOT}/client/src/ksx6924/ksx6924core.c
+        ${PM3_ROOT}/client/src/cipurse/cipursecrypto.c
+        ${PM3_ROOT}/client/src/cipurse/cipursecore.c
+        ${PM3_ROOT}/client/src/cipurse/cipursetest.c
         ${PM3_ROOT}/client/src/loclass/cipher.c
         ${PM3_ROOT}/client/src/loclass/cipherutils.c
         ${PM3_ROOT}/client/src/loclass/elite_crack.c
         ${PM3_ROOT}/client/src/loclass/hash1_brute.c
         ${PM3_ROOT}/client/src/loclass/ikeys.c
         ${PM3_ROOT}/client/src/mifare/mad.c
+        ${PM3_ROOT}/client/src/mifare/aiddesfire.c
         ${PM3_ROOT}/client/src/mifare/mfkey.c
         ${PM3_ROOT}/client/src/mifare/mifare4.c
         ${PM3_ROOT}/client/src/mifare/mifaredefault.c
         ${PM3_ROOT}/client/src/mifare/mifarehost.c
-        ${PM3_ROOT}/client/src/mifare/ndef.c
-        ${PM3_ROOT}/client/src/mifare/desfire_crypto.c
+        ${PM3_ROOT}/client/src/mifare/gen4.c
+        ${PM3_ROOT}/client/src/nfc/ndef.c
+        ${PM3_ROOT}/client/src/mifare/lrpcrypto.c
+        ${PM3_ROOT}/client/src/mifare/desfirecrypto.c
+        ${PM3_ROOT}/client/src/mifare/desfiresecurechan.c
+        ${PM3_ROOT}/client/src/mifare/desfirecore.c
+        ${PM3_ROOT}/client/src/mifare/desfiretest.c
+        ${PM3_ROOT}/client/src/mifare/gallaghercore.c
+        ${PM3_ROOT}/client/src/uart/ringbuffer.c
+        ${PM3_ROOT}/client/src/uart/uart_common.c
         ${PM3_ROOT}/client/src/uart/uart_posix.c
         ${PM3_ROOT}/client/src/uart/uart_win32.c
         ${PM3_ROOT}/client/src/ui/overlays.ui
+        ${PM3_ROOT}/client/src/ui/image.ui
         ${PM3_ROOT}/client/src/aidsearch.c
+        ${PM3_ROOT}/client/src/atrs.c
         ${PM3_ROOT}/client/src/cmdanalyse.c
         ${PM3_ROOT}/client/src/cmdcrc.c
         ${PM3_ROOT}/client/src/cmddata.c
@@ -226,10 +331,17 @@ set (TARGET_SOURCES
         ${PM3_ROOT}/client/src/cmdhf14b.c
         ${PM3_ROOT}/client/src/cmdhf15.c
         ${PM3_ROOT}/client/src/cmdhfcryptorf.c
+        ${PM3_ROOT}/client/src/cmdhfemrtd.c
         ${PM3_ROOT}/client/src/cmdhfepa.c
         ${PM3_ROOT}/client/src/cmdhffelica.c
         ${PM3_ROOT}/client/src/cmdhffido.c
+        ${PM3_ROOT}/client/src/cmdhffudan.c
+        ${PM3_ROOT}/client/src/cmdhfgallagher.c
+        ${PM3_ROOT}/client/src/cmdhfcipurse.c
         ${PM3_ROOT}/client/src/cmdhficlass.c
+        ${PM3_ROOT}/client/src/cmdhfict.c
+        ${PM3_ROOT}/client/src/cmdhfjooki.c
+        ${PM3_ROOT}/client/src/cmdhfksx6924.c
         ${PM3_ROOT}/client/src/cmdhflegic.c
         ${PM3_ROOT}/client/src/cmdhflist.c
         ${PM3_ROOT}/client/src/cmdhflto.c
@@ -238,19 +350,32 @@ set (TARGET_SOURCES
         ${PM3_ROOT}/client/src/cmdhfmfhard.c
         ${PM3_ROOT}/client/src/cmdhfmfp.c
         ${PM3_ROOT}/client/src/cmdhfmfu.c
+        ${PM3_ROOT}/client/src/cmdhfntag424.c
+        ${PM3_ROOT}/client/src/cmdhfseos.c
+        ${PM3_ROOT}/client/src/cmdhfst.c
+        ${PM3_ROOT}/client/src/cmdhfst25ta.c
+        ${PM3_ROOT}/client/src/cmdhftesla.c
+        ${PM3_ROOT}/client/src/cmdhftexkom.c
         ${PM3_ROOT}/client/src/cmdhfthinfilm.c
         ${PM3_ROOT}/client/src/cmdhftopaz.c
+        ${PM3_ROOT}/client/src/cmdhfvas.c
+        ${PM3_ROOT}/client/src/cmdhfxerox.c
         ${PM3_ROOT}/client/src/cmdhw.c
         ${PM3_ROOT}/client/src/cmdlf.c
         ${PM3_ROOT}/client/src/cmdlfawid.c
         ${PM3_ROOT}/client/src/cmdlfcotag.c
-        ${PM3_ROOT}/client/src/cmdlfem4x.c
+        ${PM3_ROOT}/client/src/cmdlfdestron.c
+        ${PM3_ROOT}/client/src/cmdlfem.c
+        ${PM3_ROOT}/client/src/cmdlfem410x.c
+        ${PM3_ROOT}/client/src/cmdlfem4x05.c
         ${PM3_ROOT}/client/src/cmdlfem4x50.c
-        ${PM3_ROOT}/client/src/cmdlffdx.c
+        ${PM3_ROOT}/client/src/cmdlfem4x70.c
+        ${PM3_ROOT}/client/src/cmdlffdxb.c
         ${PM3_ROOT}/client/src/cmdlfgallagher.c
         ${PM3_ROOT}/client/src/cmdlfguard.c
         ${PM3_ROOT}/client/src/cmdlfhid.c
         ${PM3_ROOT}/client/src/cmdlfhitag.c
+        ${PM3_ROOT}/client/src/cmdlfidteck.c
         ${PM3_ROOT}/client/src/cmdlfindala.c
         ${PM3_ROOT}/client/src/cmdlfio.c
         ${PM3_ROOT}/client/src/cmdlfjablotron.c
@@ -269,8 +394,11 @@ set (TARGET_SOURCES
         ${PM3_ROOT}/client/src/cmdlfti.c
         ${PM3_ROOT}/client/src/cmdlfviking.c
         ${PM3_ROOT}/client/src/cmdlfvisa2000.c
+        ${PM3_ROOT}/client/src/cmdlfzx8211.c
         ${PM3_ROOT}/client/src/cmdmain.c
+        ${PM3_ROOT}/client/src/cmdnfc.c
         ${PM3_ROOT}/client/src/cmdparser.c
+        ${PM3_ROOT}/client/src/cmdpiv.c
         ${PM3_ROOT}/client/src/cmdscript.c
         ${PM3_ROOT}/client/src/cmdsmartcard.c
         ${PM3_ROOT}/client/src/cmdtrace.c
@@ -280,25 +408,26 @@ set (TARGET_SOURCES
         ${PM3_ROOT}/client/src/fileutils.c
         ${PM3_ROOT}/client/src/flash.c
         ${PM3_ROOT}/client/src/graph.c
+        ${PM3_ROOT}/client/src/iso4217.c
         ${PM3_ROOT}/client/src/jansson_path.c
         ${PM3_ROOT}/client/src/preferences.c
+        ${PM3_ROOT}/client/src/pm3.c
         ${PM3_ROOT}/client/src/pm3_binlib.c
         ${PM3_ROOT}/client/src/pm3_bitlib.c
-        ${PM3_ROOT}/client/src/prng.c
+        ${PM3_ROOT}/client/src/pm3line.c
         ${PM3_ROOT}/client/src/scandir.c
         ${PM3_ROOT}/client/src/scripting.c
-        ${PM3_ROOT}/client/src/tea.c
         ${PM3_ROOT}/client/src/ui.c
         ${PM3_ROOT}/client/src/util.c
         ${PM3_ROOT}/client/src/wiegand_formats.c
         ${PM3_ROOT}/client/src/wiegand_formatutils.c
-        ${CMAKE_BINARY_DIR}/version.c
+        ${CMAKE_BINARY_DIR}/version_pm3.c
         )
 
 add_custom_command(
-    OUTPUT  ${CMAKE_BINARY_DIR}/version.c
-    COMMAND sh ${PM3_ROOT}/tools/mkversion.sh > ${CMAKE_BINARY_DIR}/version.c || perl ${PM3_ROOT}/tools/mkversion.pl > ${CMAKE_BINARY_DIR}/version.c || ${CMAKE_COMMAND} -E copy ${PM3_ROOT}/common/default_version.c ${CMAKE_BINARY_DIR}/version.c
-    DEPENDS ${PM3_ROOT}/common/default_version.c
+    OUTPUT  ${CMAKE_BINARY_DIR}/version_pm3.c
+    COMMAND ${CMAKE_COMMAND} -E copy ${PM3_ROOT}/common/default_version_pm3.c ${CMAKE_BINARY_DIR}/version_pm3.c
+    DEPENDS ${PM3_ROOT}/common/default_version_pm3.c
 )
 
 set(ADDITIONAL_SRC "")
@@ -310,9 +439,24 @@ set(X86_CPUS x86 x86_64 i686)
 message(STATUS "CMAKE_SYSTEM_PROCESSOR := ${CMAKE_SYSTEM_PROCESSOR}")
 
 if (APPLE)
-    message("Apple device detected.")
+    message(STATUS "Apple device detected.")
     set(ADDITIONAL_SRC ${PM3_ROOT}/client/src/util_darwin.h  ${PM3_ROOT}/client/src/util_darwin.m ${ADDITIONAL_SRC})
-    set(ADDITIONAL_LNK "-framework Foundation" "-framework AppKit")
+
+    find_library(UIKIT_LIBRARY UIKit)
+    if (NOT UIKIT_LIBRARY)
+        message(STATUS "UIKit.framework NOT found!")
+    else()
+        message(STATUS "UIKit.framework found! ${UIKIT_LIBRARY}")
+        set(ADDITIONAL_LNK "-framework Foundation" "-framework UIKit")
+    endif()
+
+    find_library(APPKIT_LIBRARY AppKit)
+    if (NOT APPKIT_LIBRARY)
+      message(STATUS "AppKit.framework NOT found!")
+    else()
+      message(STATUS "AppKit.framework found! ${APPKIT_LIBRARY}")
+      set(ADDITIONAL_LNK "-framework Foundation" "-framework AppKit")
+    endif()
 endif (APPLE)
 
 if ((NOT SKIPQT EQUAL 1) AND (Qt5_FOUND))
@@ -354,7 +498,7 @@ if (NOT SKIPPYTHON EQUAL 1)
         add_definitions(-DHAVE_PYTHON)
         set(ADDITIONAL_DIRS ${PYTHON3_INCLUDE_DIRS} ${ADDITIONAL_DIRS})
         set(ADDITIONAL_LNK ${PYTHON3_LIBRARIES} ${ADDITIONAL_LNK})
-        set(ADDITIONAL_LNKDIRS ${PYTHON3_LIBRARY_DIRS} ${ADDITIONAL_LNKDIRS})   
+        set(ADDITIONAL_LNKDIRS ${PYTHON3_LIBRARY_DIRS} ${ADDITIONAL_LNKDIRS})
     endif (PYTHON3EMBED_FOUND)
 endif (NOT SKIPPYTHON EQUAL 1)
 
@@ -371,84 +515,168 @@ if (BZIP2_FOUND)
     set(ADDITIONAL_LNK ${BZIP2_LIBRARIES} ${ADDITIONAL_LNK})
 endif (BZIP2_FOUND)
 
+if (LZ4_FOUND)
+    set(ADDITIONAL_DIRS ${LZ4_INCLUDE_DIRS} ${ADDITIONAL_DIRS})
+    set(ADDITIONAL_LNK ${LZ4_LIBRARIES} ${ADDITIONAL_LNK})
+endif (LZ4_FOUND)
+
+if (NOT SKIPGD EQUAL 1 AND GD_FOUND)
+    set(ADDITIONAL_DIRS ${GD_INCLUDE_DIRS} ${ADDITIONAL_DIRS})
+    set(ADDITIONAL_LNK ${GD_LIBRARIES} ${ADDITIONAL_LNK})
+    set(ADDITIONAL_LNKDIRS ${GD_LIBRARY_DIRS} ${ADDITIONAL_LNKDIRS})
+    set(TARGET_SOURCES
+            ${PM3_ROOT}/client/src/imgutils.c
+            ${PM3_ROOT}/client/src/cmdhfwaveshare.c
+            ${TARGET_SOURCES})
+    add_definitions("-DHAVE_GD")
+endif (NOT SKIPGD EQUAL 1 AND GD_FOUND)
+
 if (WHEREAMI_FOUND)
     set(ADDITIONAL_DIRS ${WHEREAMI_INCLUDE_DIRS} ${ADDITIONAL_DIRS})
     set(ADDITIONAL_LNK ${WHEREAMI_LIBRARIES} ${ADDITIONAL_LNK})
 endif (WHEREAMI_FOUND)
 
-message("===================================================================")
+message(STATUS "===================================================================")
+execute_process(
+    COMMAND sh ${PM3_ROOT}/tools/mkversion.sh --short
+    OUTPUT_VARIABLE version_pm3
+)
+string(STRIP ${version_pm3} version_pm3)
+message(STATUS "Version info:      ${version_pm3}")
 if (SKIPQT EQUAL 1)
-    message("GUI support:       skipped")
+    message(STATUS "GUI support:       skipped")
 else (SKIPQT EQUAL 1)
     if (Qt5_FOUND)
-        message("GUI support:       QT5 found, enabled")
+        message(STATUS "GUI support:       QT5 found, enabled")
     else (Qt5_FOUND)
-        message("GUI support:       QT5 not found, disabled")
+        message(STATUS "GUI support:       QT5 not found, disabled")
     endif (Qt5_FOUND)
 endif (SKIPQT EQUAL 1)
 
 if (SKIPBT EQUAL 1)
-    message("native BT support: skipped")
+    message(STATUS "native BT support: skipped")
 else (SKIPBT EQUAL 1)
     if (BLUEZ_FOUND)
-        message("native BT support: Bluez found, enabled")
+        message(STATUS "native BT support: Bluez found, enabled")
     else (BLUEZ_FOUND)
-        message("native BT support: Bluez not found, disabled")
+        message(STATUS "native BT support: Bluez not found, disabled")
     endif (BLUEZ_FOUND)
 endif(SKIPBT EQUAL 1)
 
-if (EMBED_BZIP2)
-    message("Bzip2 library:     embedded")
-else (EMBED_BZIP2)
-    message("Bzip2 library:     system library found")
-endif (EMBED_BZIP2)
+if (BZIP2_FOUND)
+    if (EMBED_BZIP2)
+        message(STATUS "Bzip2 library:     embedded")
+    else (EMBED_BZIP2)
+        message(STATUS "Bzip2 library:     system library found")
+    endif (EMBED_BZIP2)
+else (BZIP2_FOUND)
+    message(SEND_ERROR "Bzip2 library:     Bzip2 not found")
+endif (BZIP2_FOUND)
+
+if (LZ4_FOUND)
+    if (EMBED_LZ4)
+        message(STATUS "LZ4 library:       embedded")
+    else (EMBED_LZ4)
+        message(STATUS "LZ4 library:       system library found")
+    endif (EMBED_LZ4)
+else (LZ4_FOUND)
+    message(SEND_ERROR "LZ4 library:       LZ4 not found")
+endif (LZ4_FOUND)
+
+if (SKIPGD EQUAL 1)
+    message(STATUS "GD library:        skipped")
+elseif (GD_FOUND)
+    if (EMBED_GD)
+        message(STATUS "GD library:        embedded")
+    else (EMBED_GD)
+        message(STATUS "GD library:        system library found")
+    endif (EMBED_GD)
+else (SKIPGD EQUAL 1)
+    message(STATUS "GD library:        GD not found, disabled")
+endif (SKIPGD EQUAL 1)
 
 if (SKIPJANSSONSYSTEM EQUAL 1)
-    message("Jansson library:   local library forced")
+    message(STATUS "Jansson library:   local library forced")
 else (SKIPJANSSONSYSTEM EQUAL 1)
     if (JANSSON_FOUND)
-        message("Jansson library:   system library found")
+        message(STATUS "Jansson library:   system library found")
     else (JANSSON_FOUND)
-        message("Jansson library:   system library not found, using local library")
+        message(STATUS "Jansson library:   system library not found, using local library")
     endif (JANSSON_FOUND)
 endif (SKIPJANSSONSYSTEM EQUAL 1)
 
 if (SKIPPYTHON EQUAL 1)
-    message("Python3 library:   skipped")
+    message(STATUS "Python3 library:   skipped")
 else (SKIPPYTHON EQUAL 1)
     if (PYTHON3EMBED_FOUND)
-        message("Python3 library:   Python3 embed found, enabled")
-    elseif (PYTHON_FOUND)
-        message("Python3 library:   Python3 found, enabled")
+        message(STATUS "Python3 library:   Python3 embed found, enabled")
+    elseif (PYTHON3_FOUND)
+        message(STATUS "Python3 library:   Python3 found, enabled")
     else (PYTHON3EMBED_FOUND)
-        message("Python3 library:   Python3 not found, disabled")
+        message(STATUS "Python3 library:   Python3 not found, disabled")
     endif (PYTHON3EMBED_FOUND)
 endif(SKIPPYTHON EQUAL 1)
 
 if (SKIPREADLINE EQUAL 1)
-    message("Readline library:  skipped")
+    message(STATUS "Readline library:  skipped")
 else (SKIPREADLINE EQUAL 1)
     if (READLINE_FOUND)
         if (EMBED_READLINE)
-            message("Readline library:  embedded")
+            message(STATUS "Readline library:  embedded")
         else (EMBED_READLINE)
-            message("Readline library:  system library found")
+            message(STATUS "Readline library:  system library found")
         endif (EMBED_READLINE)
     else (READLINE_FOUND)
-        message("Readline library:  Readline not found, disabled")
+        message(STATUS "Readline library:  Readline not found, disabled")
     endif (READLINE_FOUND)
 endif(SKIPREADLINE EQUAL 1)
 
+if (NOT READLINE_FOUND)
+    if (SKIPLINENOISE EQUAL 1)
+        message(STATUS "Linenoise library: skipped")
+    else (SKIPLINENOISE EQUAL 1)
+        if (LINENOISE_LOCAL_FOUND)
+            message(STATUS "Linenoise library: enabled")
+        else (LINENOISE_LOCAL_FOUND)
+            message(STATUS "Linenoise library: Linenoise not found, disabled")
+        endif (LINENOISE_LOCAL_FOUND)
+    endif (SKIPLINENOISE EQUAL 1)
+endif (NOT READLINE_FOUND)
+
 if (SKIPWHEREAMISYSTEM EQUAL 1)
-    message("Whereami library:  local library forced")
+    message(STATUS "Whereami library:  local library forced")
 else (SKIPWHEREAMISYSTEM EQUAL 1)
     if (WHEREAMI_FOUND)
-        message("Whereami library:  system library found")
+        message(STATUS "Whereami library:  system library found")
     else (WHEREAMI_FOUND)
-        message("Whereami library:  system library not found, using local library")
+        message(STATUS "Whereami library:  system library not found, using local library")
     endif (WHEREAMI_FOUND)
 endif (SKIPWHEREAMISYSTEM EQUAL 1)
-message("===================================================================")
+
+# Lua SWIG
+if (EXISTS ${PM3_ROOT}/client/src/pm3_luawrap.c)
+    set (TARGET_SOURCES
+            ${PM3_ROOT}/client/src/pm3_luawrap.c
+            ${TARGET_SOURCES})
+    add_definitions(-DHAVE_LUA_SWIG)
+    message(STATUS "Lua SWIG:          wrapper found")
+endif (EXISTS ${PM3_ROOT}/client/src/pm3_luawrap.c)
+
+# Python SWIG
+if (NOT SKIPPYTHON EQUAL 1)
+    if (PYTHON3EMBED_FOUND OR PYTHON3_FOUND)
+        if (EXISTS ${PM3_ROOT}/client/src/pm3_pywrap.c)
+            set (TARGET_SOURCES
+                    ${PM3_ROOT}/client/src/pm3_pywrap.c
+                    ${TARGET_SOURCES})
+            add_definitions(-DHAVE_PYTHON_SWIG)
+            message(STATUS "Python SWIG:       wrapper found")
+        endif (EXISTS ${PM3_ROOT}/client/src/pm3_pywrap.c)
+    endif (PYTHON3EMBED_FOUND OR PYTHON3_FOUND)
+endif (NOT SKIPPYTHON EQUAL 1)
+message(STATUS "===================================================================")
+
+add_definitions(-DHAVE_SNPRINTF)
 
 add_executable(proxmark3
         ${PM3_ROOT}/client/src/proxmark3.c
@@ -456,7 +684,7 @@ add_executable(proxmark3
         ${ADDITIONAL_SRC}
 )
 
-target_compile_options(proxmark3 PUBLIC -Wall -Werror -O3)
+target_compile_options(proxmark3 PUBLIC -Wall -O3)
 if (EMBED_READLINE)
     if (NOT SKIPREADLINE EQUAL 1)
         add_dependencies(proxmark3 ncurses readline)
@@ -465,6 +693,9 @@ endif (EMBED_READLINE)
 if (EMBED_BZIP2)
     add_dependencies(proxmark3 bzip2)
 endif (EMBED_BZIP2)
+if (EMBED_LZ4)
+    add_dependencies(proxmark3 lz4)
+endif (EMBED_LZ4)
 
 if (MINGW)
     # Mingw uses by default Microsoft printf, we want the GNU printf (e.g. for %z)
@@ -475,7 +706,21 @@ if (MINGW)
 
     set(CMAKE_C_FLAGS "-mno-ms-bitfields -fexec-charset=cp850 ${CMAKE_C_FLAGS}")
     set(CMAKE_CXX_FLAGS "-mno-ms-bitfields -fexec-charset=cp850 ${CMAKE_CXX_FLAGS}")
+
+    # link Winsock2
+    set(ADDITIONAL_LNK ws2_32 ${ADDITIONAL_LNK})
 endif (MINGW)
+
+# GCC 10 has issues with false positives on stringop-overflow,
+# let's disable them for now (cf https://gcc.gnu.org/bugzilla/show_bug.cgi?id=92955, https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94335)
+# beware these flags didn't exist for GCC < 7
+if(CMAKE_COMPILER_IS_GNUCXX)
+    execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpversion OUTPUT_VARIABLE GCC_VERSION)
+    if (GCC_VERSION VERSION_GREATER 10.0 OR GCC_VERSION VERSION_EQUAL 10.0)
+        set(CMAKE_C_FLAGS "-Wno-stringop-overflow -Wno-error=stringop-overflow ${CMAKE_C_FLAGS}")
+        set(CMAKE_CXX_FLAGS "-Wno-stringop-overflow -Wno-error=stringop-overflow ${CMAKE_CXX_FLAGS}")
+    endif()
+endif(CMAKE_COMPILER_IS_GNUCXX)
 
 target_include_directories(proxmark3 PRIVATE
         ${PM3_ROOT}/common
@@ -489,22 +734,23 @@ target_include_directories(proxmark3 PRIVATE
 if (NOT APPLE)
     # required for Raspberry Pi, but breaks with clang (OSX). Need to be at the end of the linker line.
     set(ADDITIONAL_LNK ${ADDITIONAL_LNK} -Wl,--as-needed -latomic -Wl,--no-as-needed)
+else (NOT APPLE)
+    #set_property(TARGET proxmark3 PROPERTY LINK_FLAGS "-Wl,-undefined dynamic_lookup")
+    set(ADDITIONAL_LNK ${ADDITIONAL_LNK} -Wl,-undefined,dynamic_lookup)
 endif (NOT APPLE)
 
-
-find_library(pm3rrg_rdv4_cliparser REQUIRED)
-find_library(pm3rrg_rdv4_tinycbor REQUIRED)
-find_library(pm3rrg_rdv4_lua REQUIRED)
-find_library(pm3rrg_rdv4_mbedtls REQUIRED)
-find_library(pm3rrg_rdv4_reveng REQUIRED)
-find_library(pm3rrg_rdv4_hardnested REQUIRED)
-
 if (NOT JANSSON_FOUND)
-    find_library(pm3rrg_rdv4_jansson REQUIRED)
     set(ADDITIONAL_LNK pm3rrg_rdv4_jansson ${ADDITIONAL_LNK})
 endif (NOT JANSSON_FOUND)
+
+if (NOT READLINE_FOUND)
+    if (LINENOISE_LOCAL_FOUND)
+        add_definitions("-DHAVE_LINENOISE")
+        set(ADDITIONAL_LNK pm3rrg_rdv4_linenoise ${ADDITIONAL_LNK})
+    endif (LINENOISE_LOCAL_FOUND)
+endif (NOT READLINE_FOUND)
+
 if (NOT WHEREAMI_FOUND)
-    find_library(pm3rrg_rdv4_whereami REQUIRED)
     set(ADDITIONAL_LNK pm3rrg_rdv4_whereami ${ADDITIONAL_LNK})
 endif (NOT WHEREAMI_FOUND)
 
@@ -517,6 +763,7 @@ target_link_libraries(proxmark3 PRIVATE
         pm3rrg_rdv4_amiibo
         pm3rrg_rdv4_reveng
         pm3rrg_rdv4_hardnested
+        pm3rrg_rdv4_id48
         ${ADDITIONAL_LNK})
 
 if (NOT SKIPPTHREAD EQUAL 1)
@@ -526,13 +773,13 @@ endif (NOT SKIPPTHREAD EQUAL 1)
 if (NOT SKIPPYTHON EQUAL 1)
     # OSX have a hard time compiling python3 dependency with older cmake.
     if (PYTHON3EMBED_FOUND OR PYTHON3_FOUND)
-        if (NOT CMAKE_VERSION VERSION_LESS 3.13)
-               target_link_directories(proxmark3 PRIVATE ${ADDITIONAL_LNKDIRS})
-        elseif (APPLE)
-               message( SEND_ERROR "Your CMAKE version is too old for Apple platform, please update to a version >=3.13" )
-        endif (NOT CMAKE_VERSION VERSION_LESS 3.13)
+        if (CMAKE_VERSION VERSION_LESS 3.13)
+            message( SEND_ERROR "Your CMAKE version is too old for Apple platform, please update to a version >=3.13" )
+        endif (CMAKE_VERSION VERSION_LESS 3.13)
     endif (PYTHON3EMBED_FOUND OR PYTHON3_FOUND)
 endif (NOT SKIPPYTHON EQUAL 1)
+
+target_link_directories(proxmark3 PRIVATE ${ADDITIONAL_LNKDIRS})
 
 install(TARGETS proxmark3 DESTINATION "bin")
 install(DIRECTORY cmdscripts lualibs luascripts pyscripts resources dictionaries DESTINATION "share/proxmark3")

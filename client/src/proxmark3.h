@@ -1,10 +1,17 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2009 Michael Gernoth <michael at gernoth.net>
-// Copyright (C) 2010 iZsh <izsh at fail0verflow.com>
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Main binary
 //-----------------------------------------------------------------------------
@@ -17,7 +24,7 @@
 
 #define PROXPROMPT_MAX_SIZE 255
 
-#define PROXPROMPT_COMPOSE "[" "%s%s" "] pm3 --> "
+#define PROXPROMPT_COMPOSE "[" "%s%s%s" "] pm3 --> "
 
 #define PROXPROMPT_CTX_SCRIPTFILE  "|" _RL_GREEN_("script")
 #define PROXPROMPT_CTX_SCRIPTCMD   "|" _RL_GREEN_("script")
@@ -28,8 +35,15 @@
 #define PROXPROMPT_DEV_FPC     _RL_BOLD_GREEN_("fpc")
 #define PROXPROMPT_DEV_OFFLINE _RL_BOLD_RED_("offline")
 
+#define PROXPROMPT_NET_TCPV4   "|" _RL_BOLD_GREEN_("tcp")
+#define PROXPROMPT_NET_UDPV4   "|" _RL_BOLD_GREEN_("udp")
+#define PROXPROMPT_NET_TCPV6   "|" _RL_BOLD_GREEN_("tcp v6")
+#define PROXPROMPT_NET_UDPV6   "|" _RL_BOLD_GREEN_("udp v6")
+#define PROXPROMPT_NET_NONE    ""
+
+
 #define PROXHISTORY "history.txt"
-#define PROXLOG "log_%Y%m%d.txt"
+#define PROXLOG "log_%Y%m%d%H%M%S.txt"
 #define MAX_NESTED_CMDSCRIPT 10
 #define MAX_NESTED_LUASCRIPT 10
 
@@ -49,7 +63,8 @@ int push_cmdscriptfile(char *path, bool stayafter);
 const char *get_my_executable_path(void);
 const char *get_my_executable_directory(void);
 const char *get_my_user_directory(void);
-void main_loop(char *script_cmds_file, char *script_cmd, bool stayInCommandLoop);
+void pm3_init(void);
+void main_loop(const char *script_cmds_file, char *script_cmd, bool stayInCommandLoop);
 
 #ifdef __cplusplus
 }

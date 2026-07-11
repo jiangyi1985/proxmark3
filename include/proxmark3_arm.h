@@ -1,9 +1,17 @@
 //-----------------------------------------------------------------------------
-// Jonathan Westhues, Mar 2006
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Hardware and interface definitions
 //-----------------------------------------------------------------------------
@@ -28,8 +36,11 @@
 #define PWM_CHANNEL(x)                          (1 << (x))
 
 #define ADC_CHAN_LF                             4
+#if defined RDV4 || defined ICOPYX
+#define ADC_CHAN_HF                             7
+#else
 #define ADC_CHAN_HF                             5
-#define ADC_CHAN_HF_RDV40                       7
+#endif
 #define ADC_MODE_PRESCALE(x)                    ((x) << 8)
 #define ADC_MODE_STARTUP_TIME(x)                ((x) << 16)
 #define ADC_MODE_SAMPLE_HOLD_TIME(x)            ((x) << 24)
@@ -41,12 +52,12 @@
 #define SSC_CLOCK_MODE_SELECT(x)                ((x) << 0)
 #define SSC_FRAME_MODE_BITS_IN_WORD(x)          (((x)-1) << 0)
 
-#define MC_FLASH_COMMAND_KEY                    ((0x5a) << 24)
+#define MC_FLASH_COMMAND_KEY                    ((0x5A) << 24)
 #define MC_FLASH_MODE_FLASH_WAIT_STATES(x)      ((x) << 8)
 #define MC_FLASH_MODE_MASTER_CLK_IN_MHZ(x)      (((x)+((x)/2)) << 16)
 #define MC_FLASH_COMMAND_PAGEN(x)               ((x) << 8)
 
-#define RST_CONTROL_KEY                         (0xa5 << 24)
+#define RST_CONTROL_KEY                         (0xA5U << 24)
 
 #define PMC_MAIN_OSC_STARTUP_DELAY(x)           ((x) << 8)
 #define PMC_PLL_DIVISOR(x)                      (x)
@@ -120,7 +131,7 @@
 #define COMMON_AREA_MAGIC 0x43334d50 // "PM3C"
 #define COMMON_AREA_COMMAND_NONE 0
 #define COMMON_AREA_COMMAND_ENTER_FLASH_MODE 1
-struct common_area {
+typedef struct {
     int magic; /* Magic sequence, to distinguish against random uninitialized memory */
     char version; /* Must be 1 */
     char command;
@@ -130,6 +141,6 @@ struct common_area {
         unsigned int button_pressed: 1;
     } PACKED flags;
     int arg1, arg2;
-} PACKED;
+} PACKED common_area_t;
 
 #endif

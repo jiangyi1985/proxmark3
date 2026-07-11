@@ -1,9 +1,20 @@
-/*
- * spiffs_config.h
- *
- *  Created on: Jul 3, 2013
- *      Author: petera
- */
+//-----------------------------------------------------------------------------
+// Borrowed initially from https://github.com/pellepl/spiffs
+// Copyright (c) 2013-2017 Peter Andersson (pelleplutt1976 at gmail.com)
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
 
 #ifndef SPIFFS_CONFIG_H_
 #define SPIFFS_CONFIG_H_
@@ -57,8 +68,6 @@ typedef uint8_t u8_t;
 #define SPIFFS_API_DBG(_f, ...) //Dbprintf(_f, ## __VA_ARGS__)
 #define SPIFFS_API_DBGF(str) SPIFFS_API_DBG(str,NULL)
 #endif
-
-
 
 // Defines spiffs debug print formatters
 // some general signed number
@@ -127,7 +136,7 @@ typedef uint8_t u8_t;
 
 // Define maximum number of gc runs to perform to reach desired free pages.
 #ifndef SPIFFS_GC_MAX_RUNS
-#define SPIFFS_GC_MAX_RUNS              5
+#define SPIFFS_GC_MAX_RUNS              10
 #endif
 
 // Enable/disable statistics on gc. Debug/test purpose only.
@@ -227,7 +236,7 @@ typedef uint8_t u8_t;
 // Instead of giving parameters in config struct, singleton build must
 // give parameters in defines below.
 #ifndef SPIFFS_CFG_PHYS_SZ
-#define SPIFFS_CFG_PHYS_SZ(ignore)        (1024*128)
+#define SPIFFS_CFG_PHYS_SZ(ignore)        (1024*192)
 #endif
 #ifndef SPIFFS_CFG_PHYS_ERASE_SZ
 #define SPIFFS_CFG_PHYS_ERASE_SZ(ignore)  (4*1024)

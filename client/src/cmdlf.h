@@ -1,9 +1,17 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2010 iZsh <izsh at fail0verflow.com>
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Low frequency commands
 //-----------------------------------------------------------------------------
@@ -32,8 +40,12 @@ int CmdLFSniff(const char *Cmd);
 int CmdVchDemod(const char *Cmd);
 int CmdLFfind(const char *Cmd);
 
-int lf_read(bool verbose, uint32_t samples);
+int lf_read(bool verbose, uint64_t samples);
+int lf_sniff(bool realtime, bool verbose, uint64_t samples);
 int lf_config(sample_config *config);
 int lf_getconfig(sample_config *config);
+int lfsim_upload_gb(void);
+int lfsim_wait_check(uint32_t cmd);
 
+int lf_config_savereset(sample_config *config);
 #endif

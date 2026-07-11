@@ -1,20 +1,21 @@
-/*
- * Copyright (c) 2004-2013 Sergey Lyubka <valenok@gmail.com>
- * Copyright (c) 2018 Cesanta Software Limited
- * All rights reserved
- *
- * Licensed under the Apache License, Version 2.0 (the ""License"");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an ""AS IS"" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+//-----------------------------------------------------------------------------
+// Borrowed initially from https://github.com/cesanta/frozen
+// Copyright (c) 2004-2013 Sergey Lyubka <valenok@gmail.com>
+// Copyright (c) 2018 Cesanta Software Limited
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
 
 #define _CRT_SECURE_NO_WARNINGS /* Disable deprecation warning in VS2005+ */
 
@@ -234,9 +235,10 @@ static int json_get_utf8_char_len(unsigned char ch) {
 
 /* string = '"' { quoted_printable_chars } '"' */
 static int json_parse_string(struct frozen *f) {
-    int n, ch = 0, len = 0;
+    int ch = 0;
     TRY(json_test_and_skip(f, '"'));
     {
+        int len = 0;
         SET_STATE(f, f->cur, "", 0);
         for (; f->cur < f->end; f->cur += len) {
             ch = *(unsigned char *) f->cur;
@@ -244,6 +246,7 @@ static int json_parse_string(struct frozen *f) {
             EXPECT(ch >= 32 && len > 0, JSON_STRING_INVALID); /* No control chars */
             EXPECT(len <= json_left(f), JSON_STRING_INCOMPLETE);
             if (ch == '\\') {
+                int n;
                 EXPECT((n = json_get_escape_len(f->cur + 1, json_left(f))) > 0, n);
                 len += n;
             } else if (ch == '"') {
@@ -294,17 +297,17 @@ static int json_parse_number(struct frozen *f) {
 #if JSON_ENABLE_ARRAY
 /* array = '[' [ value { ',' value } ] ']' */
 static int json_parse_array(struct frozen *f) {
-    int i = 0, current_path_len;
-    char buf[20];
     CALL_BACK(f, JSON_TYPE_ARRAY_START, NULL, 0);
     TRY(json_test_and_skip(f, '['));
     {
         {
+            int i = 0;
             SET_STATE(f, f->cur - 1, "", 0);
             while (json_cur(f) != ']') {
+                char buf[20];
                 snprintf(buf, sizeof(buf), "[%d]", i);
                 i++;
-                current_path_len = json_append_to_path(f, buf, strlen(buf));
+                int current_path_len = json_append_to_path(f, buf, strlen(buf));
                 f->cur_name =
                     f->path + strlen(f->path) - strlen(buf) + 1 /*opening brace*/;
                 f->cur_name_len = strlen(buf) - 2 /*braces*/;
@@ -1426,9 +1429,12 @@ static void json_next_cb(void *userdata, const char *name, size_t name_len,
 
 static void *json_next(const char *s, int len, void *handle, const char *path,
                        struct json_token *key, struct json_token *val, int *i) {
-    struct json_token tmpval, *v = val == NULL ? &tmpval : val;
-    struct json_token tmpkey, *k = key == NULL ? &tmpkey : key;
-    int tmpidx, *pidx = i == NULL ? &tmpidx : i;
+    struct json_token tmpval;
+    struct json_token *v = val == NULL ? &tmpval : val;
+    struct json_token tmpkey;
+    struct json_token *k = key == NULL ? &tmpkey : key;
+    int tmpidx;
+    int *pidx = i == NULL ? &tmpidx : i;
     struct next_data data = {handle, path, (int) strlen(path), 0, k, v, pidx};
     json_walk(s, len, json_next_cb, &data);
     return data.found ? data.handle : NULL;

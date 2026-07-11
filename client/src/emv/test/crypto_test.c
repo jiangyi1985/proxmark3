@@ -1,30 +1,34 @@
-/*
- * emv-tools - a set of tools to work with EMV family of smart cards
- * Copyright (C) 2015 Dmitry Eremin-Solenikov
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- */
+//-----------------------------------------------------------------------------
+// Borrowed initially from https://github.com/lumag/emv-tools/
+// Copyright (C) 2012, 2015 Dmitry Eremin-Solenikov
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
+// emv-tools - a set of tools to work with EMV family of smart cards
+//-----------------------------------------------------------------------------
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
 
 #include <string.h>     // memcpy
-#include <stdlib.h>     // malloc
+#include <stdlib.h>     // calloc
 #include <inttypes.h>
 #include "crypto_test.h"
 
 #include "commonutil.h"     // ARRAYLEN
 #include "../crypto.h"
-#include "../dump.h"
 #include "util_posix.h"
 #include "ui.h"             // printandlog
 
@@ -68,7 +72,7 @@ static int test_genkey(unsigned int keylength, unsigned char *msg, size_t msg_le
     }
 
     free(tmp2);
-    PrintAndLogEx(SUCCESS, "passed (" _GREEN_("%" PRIu64) " ms)", msclock() - ms);
+    PrintAndLogEx(SUCCESS, "passed ( " _GREEN_("%" PRIu64) " ms )", msclock() - ms);
 
 free_tmp:
     free(tmp);
@@ -306,16 +310,16 @@ int exec_crypto_test(bool verbose, bool include_slow_tests) {
     unsigned int extra_keylengths[] = {1152, 1408, 1984, 3072, 4096};
     int ret = test_pk(verbose);
     if (ret) {
-        PrintAndLogEx(WARNING, "Crypto raw test: (%s)", _RED_("failed"));
+        PrintAndLogEx(WARNING, "Crypto raw test ( %s )", _RED_("fail"));
         return ret;
     }
-    PrintAndLogEx(SUCCESS, "Crypto raw test (%s)", _GREEN_("passed"));
+    PrintAndLogEx(SUCCESS, "Crypto raw test ( %s )", _GREEN_("ok"));
 
     for (int i = 0; i < ARRAYLEN(keylengths); i++) {
         unsigned int kl = keylengths[i];
         ret = test_genkey(kl, message, kl / 8, verbose);
         if (ret) {
-            PrintAndLogEx(WARNING, "Crypto generate key[%u] test: (%s)", kl, _RED_("failed"));
+            PrintAndLogEx(WARNING, "Crypto generate key[ %u ] test ( %s )", kl, _RED_("fail"));
             return ret;
         }
     }
@@ -324,7 +328,7 @@ int exec_crypto_test(bool verbose, bool include_slow_tests) {
             unsigned int kl = extra_keylengths[i];
             ret = test_genkey(kl, message, kl / 8, verbose);
             if (ret) {
-                PrintAndLogEx(WARNING, "Crypto generate key[%u] test: (%s)", kl, _RED_("failed"));
+                PrintAndLogEx(WARNING, "Crypto generate key[ %u ] test ( %s )", kl, _RED_("fail"));
                 return ret;
             }
         }

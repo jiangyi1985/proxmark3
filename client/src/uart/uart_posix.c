@@ -1,43 +1,27 @@
-/*
- * Generic uart / rs232/ serial port library
- *
- * Copyright (c) 2013, Roel Verdult
- * Copyright (c) 2018 Google
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * 1. Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the copyright holders nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ''AS IS'' AND ANY
- * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * @file uart_posix.c
- *
- * This version of the library has functionality removed which was not used by
- * proxmark3 project.
- */
+//-----------------------------------------------------------------------------
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
+// Generic uart / rs232/ serial port library
+//-----------------------------------------------------------------------------
 
 // Test if we are dealing with posix operating systems
 #ifndef _WIN32
 #define _DEFAULT_SOURCE
 
 #include "uart.h"
+#include "ringbuffer.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -47,9 +31,11 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <netinet/tcp.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <errno.h>
 
 #ifdef HAVE_BLUEZ
 #include <bluetooth/bluetooth.h>
@@ -63,13 +49,17 @@
 #ifndef SOL_TCP
 # define SOL_TCP IPPROTO_TCP
 #endif
+#ifndef SOL_UDP
+# define SOL_UDP IPPROTO_UDP
+#endif
 
 typedef struct termios term_info;
 typedef struct {
     int fd;           // Serial port file descriptor
     term_info tiOld;  // Terminal info before using the port
     term_info tiNew;  // Terminal info during the transaction
-} serial_port_unix;
+    RingBuffer *udpBuffer;
+} serial_port_unix_t_t;
 
 // see pm3_cmd.h
 struct timeval timeout = {
@@ -79,6 +69,7 @@ struct timeval timeout = {
 
 static uint32_t newtimeout_value = 0;
 static bool newtimeout_pending = false;
+static uint8_t rx_empty_counter = 0;
 
 int uart_reconfigure_timeouts(uint32_t value) {
     newtimeout_value = value;
@@ -86,64 +77,131 @@ int uart_reconfigure_timeouts(uint32_t value) {
     return PM3_SUCCESS;
 }
 
-serial_port uart_open(const char *pcPortName, uint32_t speed) {
-    serial_port_unix *sp = calloc(sizeof(serial_port_unix), sizeof(uint8_t));
+uint32_t uart_get_timeouts(void) {
+    return newtimeout_value;
+}
+
+serial_port uart_open(const char *pcPortName, uint32_t speed, bool slient) {
+    serial_port_unix_t_t *sp = calloc(sizeof(serial_port_unix_t_t), sizeof(uint8_t));
 
     if (sp == 0) {
         PrintAndLogEx(ERR, "UART failed to allocate memory");
         return INVALID_SERIAL_PORT;
     }
 
+    sp->udpBuffer = NULL;
+    rx_empty_counter = 0;
     // init timeouts
     timeout.tv_usec = UART_FPC_CLIENT_RX_TIMEOUT_MS * 1000;
+    g_conn.send_via_local_ip = false;
+    g_conn.send_via_ip = PM3_NONE;
 
-    char *prefix = strdup(pcPortName);
+    char *prefix = str_dup(pcPortName);
     if (prefix == NULL) {
-        PrintAndLogEx(ERR, "error: malloc");
+        PrintAndLogEx(ERR, "error: string duplication");
         free(sp);
         return INVALID_SERIAL_PORT;
     }
     str_lower(prefix);
 
-    if (memcmp(prefix, "tcp:", 4) == 0) {
-        free(prefix);
+    bool isTCP = false;
+    bool isUDP = false;
+    bool isBluetooth = false;
+    bool isUnixSocket = false;
+    if (strlen(prefix) > 4) {
+        isTCP = (memcmp(prefix, "tcp:", 4) == 0);
+        isUDP = (memcmp(prefix, "udp:", 4) == 0);
+    }
+    if (strlen(prefix) > 3) {
+        isBluetooth = (memcmp(prefix, "bt:", 3) == 0);
+    }
+    if (strlen(prefix) > 7) {
+        isUnixSocket = (memcmp(prefix, "socket:", 7) == 0);
+    }
 
-        if (strlen(pcPortName) <= 4) {
-            free(sp);
-            return INVALID_SERIAL_PORT;
-        }
+    if (isTCP || isUDP) {
+
+        free(prefix);
 
         struct addrinfo *addr = NULL, *rp;
 
-        char *addrstr = strdup(pcPortName + 4);
-        if (addrstr == NULL) {
-            PrintAndLogEx(ERR, "error: malloc");
+        char *addrPortStr = str_dup(pcPortName + 4);
+        if (addrPortStr == NULL) {
+            PrintAndLogEx(ERR, "error: string duplication");
             free(sp);
             return INVALID_SERIAL_PORT;
         }
 
-        timeout.tv_usec = UART_TCP_CLIENT_RX_TIMEOUT_MS * 1000;
+        timeout.tv_usec = UART_NET_CLIENT_RX_TIMEOUT_MS * 1000;
 
-        char *colon = strrchr(addrstr, ':');
-        const char *portstr;
-        if (colon) {
-            portstr = colon + 1;
-            *colon = '\0';
-        } else {
-            portstr = "7901";
+        // find the "bind" option
+        char *bindAddrPortStr = strstr(addrPortStr, ",bind=");
+        const char *bindAddrStr = NULL;
+        const char *bindPortStr = NULL;
+        bool isBindingIPv6 = false;
+
+        if (bindAddrPortStr != NULL) {
+            *bindAddrPortStr = '\0'; // as the end of target address (and port)
+            bindAddrPortStr += 6; // strlen(",bind=")
+
+            int result = uart_parse_address_port(bindAddrPortStr, &bindAddrStr, &bindPortStr, &isBindingIPv6);
+            if (result != PM3_SUCCESS) {
+                if (result == PM3_ESOFT) {
+                    PrintAndLogEx(ERR, "error: wrong address: [] unmatched in bind option");
+                } else {
+                    PrintAndLogEx(ERR, "error: failed to parse address and port in bind option");
+                }
+                free(addrPortStr);
+                free(sp);
+                return INVALID_SERIAL_PORT;
+            }
+
+            // for bind option, it's possible to only specify address or port
+            if (strlen(bindAddrStr) == 0) {
+                bindAddrStr = NULL;
+            }
+            if (bindPortStr != NULL && strlen(bindPortStr) == 0) {
+                bindPortStr = NULL;
+            }
         }
+
+        const char *addrStr = NULL;
+        const char *portStr = NULL;
+        bool isIPv6 = false;
+
+        int result = uart_parse_address_port(addrPortStr, &addrStr, &portStr, &isIPv6);
+        if (result != PM3_SUCCESS) {
+            if (result == PM3_ESOFT) {
+                PrintAndLogEx(ERR, "error: wrong address: [] unmatched");
+            } else {
+                PrintAndLogEx(ERR, "error: failed to parse address and port");
+            }
+            free(addrPortStr);
+            free(sp);
+            return INVALID_SERIAL_PORT;
+        }
+
+        g_conn.send_via_ip = isIPv6 ? (isTCP ? PM3_TCPv6 : PM3_UDPv6) : (isTCP ? PM3_TCPv4 : PM3_UDPv4);
+        portStr = (portStr == NULL) ? "18888" : portStr;
 
         struct addrinfo info;
 
         memset(&info, 0, sizeof(info));
 
-        info.ai_socktype = SOCK_STREAM;
+        info.ai_family = PF_UNSPEC;
+        info.ai_socktype = isTCP ? SOCK_STREAM : SOCK_DGRAM;
 
-        int s = getaddrinfo(addrstr, portstr, &info, &addr);
+        if ((strstr(addrStr, "localhost") != NULL) ||
+                (strstr(addrStr, "127.0.0.1") != NULL) ||
+                (strstr(addrStr, "::1") != NULL)) {
+            g_conn.send_via_local_ip = true;
+        }
+
+        int s = getaddrinfo(addrStr, portStr, &info, &addr);
         if (s != 0) {
-            PrintAndLogEx(ERR, "error: getaddrinfo: %s", gai_strerror(s));
+            PrintAndLogEx(ERR, "error: getaddrinfo: %d: %s", s, gai_strerror(s));
             freeaddrinfo(addr);
-            free(addrstr);
+            free(addrPortStr);
             free(sp);
             return INVALID_SERIAL_PORT;
         }
@@ -152,49 +210,66 @@ serial_port uart_open(const char *pcPortName, uint32_t speed) {
         for (rp = addr; rp != NULL; rp = rp->ai_next) {
             sfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 
-            if (sfd == -1)
+            if (sfd == -1) {
                 continue;
+            }
 
-            if (connect(sfd, rp->ai_addr, rp->ai_addrlen) != -1)
+            if (!uart_bind(&sfd, bindAddrStr, bindPortStr, isBindingIPv6)) {
+                PrintAndLogEx(ERR, "error: Could not bind. errno: %d", errno);
+                close(sfd);
+                freeaddrinfo(addr);
+                free(addrPortStr);
+                free(sp);
+                return INVALID_SERIAL_PORT;
+            }
+
+            if (connect(sfd, rp->ai_addr, rp->ai_addrlen) != -1) {
                 break;
+            }
 
             close(sfd);
         }
 
+        freeaddrinfo(addr);
+        free(addrPortStr);
+
         if (rp == NULL) {               /* No address succeeded */
-            PrintAndLogEx(ERR, "error: Could not connect");
-            freeaddrinfo(addr);
-            free(addrstr);
+            if (slient == false) {
+                PrintAndLogEx(ERR, "error: Could not connect");
+            }
             free(sp);
             return INVALID_SERIAL_PORT;
         }
-
-        freeaddrinfo(addr);
-        free(addrstr);
 
         sp->fd = sfd;
 
-        int one = 1;
-        int res = setsockopt(sp->fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
-        if (res != 0) {
-            free(sp);
-            return INVALID_SERIAL_PORT;
+        if (isTCP) {
+            int one = 1;
+            int res = setsockopt(sp->fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
+            if (res != 0) {
+                free(sp);
+                return INVALID_SERIAL_PORT;
+            }
+        } else if (isUDP) {
+            sp->udpBuffer = RingBuf_create(MAX(sizeof(PacketResponseNGRaw), sizeof(PacketResponseOLD)) * 30);
         }
+
         return sp;
     }
 
-    if (memcmp(prefix, "bt:", 3) == 0) {
+    if (isBluetooth) {
         free(prefix);
 
 #ifdef HAVE_BLUEZ
         if (strlen(pcPortName) != 20) {
+            PrintAndLogEx(ERR, "Error: wrong Bluetooth MAC address length");
             free(sp);
             return INVALID_SERIAL_PORT;
         }
 
         char *addrstr = strndup(pcPortName + 3, 17);
         if (addrstr == NULL) {
-            PrintAndLogEx(ERR, "error: malloc");
+            PrintAndLogEx(ERR, "error: string duplication");
             free(sp);
             return INVALID_SERIAL_PORT;
         }
@@ -208,6 +283,7 @@ serial_port uart_open(const char *pcPortName, uint32_t speed) {
             free(sp);
             return INVALID_SERIAL_PORT;
         }
+
         int sfd = socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
         if (sfd == -1) {
             PrintAndLogEx(ERR, "Error opening Bluetooth socket");
@@ -215,8 +291,11 @@ serial_port uart_open(const char *pcPortName, uint32_t speed) {
             free(sp);
             return INVALID_SERIAL_PORT;
         }
+
         if (connect(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
-            PrintAndLogEx(ERR, "Error: cannot connect device " _YELLOW_("%s") " over Bluetooth", addrstr);
+            if (slient == false) {
+                PrintAndLogEx(ERR, "Error: cannot connect device " _YELLOW_("%s") " over Bluetooth", addrstr);
+            }
             close(sfd);
             free(addrstr);
             free(sp);
@@ -224,6 +303,8 @@ serial_port uart_open(const char *pcPortName, uint32_t speed) {
         }
 
         sp->fd = sfd;
+
+        g_conn.send_via_ip = PM3_NONE;
         return sp;
 #else // HAVE_BLUEZ
         PrintAndLogEx(ERR, "Sorry, this client doesn't support native Bluetooth addresses");
@@ -235,16 +316,11 @@ serial_port uart_open(const char *pcPortName, uint32_t speed) {
     // Is local socket buffer, not a TCP or any net connection!
     // so, you can't connect with address like: 127.0.0.1, or any IP
     // see http://man7.org/linux/man-pages/man7/unix.7.html
-    if (memcmp(prefix, "socket:", 7) == 0) {
+    if (isUnixSocket) {
         free(prefix);
 
-        if (strlen(pcPortName) <= 7) {
-            free(sp);
-            return INVALID_SERIAL_PORT;
-        }
-
         // we must use max timeout!
-        timeout.tv_usec = UART_TCP_CLIENT_RX_TIMEOUT_MS * 1000;
+        timeout.tv_usec = UART_NET_CLIENT_RX_TIMEOUT_MS * 1000;
 
         size_t servernameLen = (strlen(pcPortName) - 7) + 1;
         char serverNameBuf[servernameLen];
@@ -275,6 +351,8 @@ serial_port uart_open(const char *pcPortName, uint32_t speed) {
         }
 
         sp->fd = localsocket;
+
+        g_conn.send_via_ip = PM3_NONE;
         return sp;
     }
 
@@ -304,6 +382,7 @@ serial_port uart_open(const char *pcPortName, uint32_t speed) {
 
     // Try to retrieve the old (current) terminal info struct
     if (tcgetattr(sp->fd, &sp->tiOld) == -1) {
+        PrintAndLogEx(ERR, "error: UART get terminal info attribute");
         uart_close(sp);
         return INVALID_SERIAL_PORT;
     }
@@ -324,6 +403,8 @@ serial_port uart_open(const char *pcPortName, uint32_t speed) {
 
     // Try to set the new terminal info struct
     if (tcsetattr(sp->fd, TCSANOW, &sp->tiNew) == -1) {
+        PrintAndLogEx(ERR, "error: UART set terminal info attribute");
+        perror("tcsetattr() error");
         uart_close(sp);
         return INVALID_SERIAL_PORT;
     }
@@ -340,12 +421,13 @@ serial_port uart_open(const char *pcPortName, uint32_t speed) {
             return INVALID_SERIAL_PORT;
         }
     }
-    conn.uart_speed = uart_get_speed(sp);
+    g_conn.uart_speed = uart_get_speed(sp);
+    g_conn.send_via_ip = PM3_NONE;
     return sp;
 }
 
 void uart_close(const serial_port sp) {
-    serial_port_unix *spu = (serial_port_unix *)sp;
+    serial_port_unix_t_t *spu = (serial_port_unix_t_t *)sp;
     tcflush(spu->fd, TCIOFLUSH);
     tcsetattr(spu->fd, TCSANOW, &(spu->tiOld));
     struct flock fl;
@@ -359,8 +441,9 @@ void uart_close(const serial_port sp) {
     int err = fcntl(spu->fd, F_SETLK, &fl);
     if (err == -1) {
         //silent error message as it can be called from uart_open failing modes, e.g. when waiting for port to appear
-        //printf("[!] UART error while closing port\n");
+        //PrintAndLogEx(ERR, "UART error while closing port");
     }
+    RingBuf_destroy(spu->udpBuffer);
     close(spu->fd);
     free(sp);
 }
@@ -369,6 +452,7 @@ int uart_receive(const serial_port sp, uint8_t *pbtRx, uint32_t pszMaxRxLen, uin
     uint32_t byteCount;  // FIONREAD returns size on 32b
     fd_set rfds;
     struct timeval tv;
+    const serial_port_unix_t_t *spu = (serial_port_unix_t_t *)sp;
 
     if (newtimeout_pending) {
         timeout.tv_usec = newtimeout_value * 1000;
@@ -377,11 +461,30 @@ int uart_receive(const serial_port sp, uint8_t *pbtRx, uint32_t pszMaxRxLen, uin
     // Reset the output count
     *pszRxLen = 0;
     do {
+        int res;
+        if (spu->udpBuffer != NULL) {
+            // for UDP connection, try to use the data from the buffer
+
+            byteCount = RingBuf_getAvailableSize(spu->udpBuffer);
+            // Cap the number of bytes, so we don't overrun the buffer
+            if (pszMaxRxLen - (*pszRxLen) < byteCount) {
+//                PrintAndLogEx(ERR, "UART:: RX prevent overrun (have %u, need %u)", pszMaxRxLen - (*pszRxLen), byteCount);
+                byteCount = pszMaxRxLen - (*pszRxLen);
+            }
+            res = RingBuf_dequeueBatch(spu->udpBuffer, pbtRx + (*pszRxLen), byteCount);
+            *pszRxLen += res;
+
+            if (*pszRxLen == pszMaxRxLen) {
+                // We have all the data we wanted.
+                return PM3_SUCCESS;
+            }
+        }
+
         // Reset file descriptor
         FD_ZERO(&rfds);
-        FD_SET(((serial_port_unix *)sp)->fd, &rfds);
+        FD_SET(spu->fd, &rfds);
         tv = timeout;
-        int res = select(((serial_port_unix *)sp)->fd + 1, &rfds, NULL, NULL, &tv);
+        res = select(spu->fd + 1, &rfds, NULL, NULL, &tv);
 
         // Read error
         if (res < 0) {
@@ -400,18 +503,53 @@ int uart_receive(const serial_port sp, uint8_t *pbtRx, uint32_t pszMaxRxLen, uin
         }
 
         // Retrieve the count of the incoming bytes
-        res = ioctl(((serial_port_unix *)sp)->fd, FIONREAD, &byteCount);
-//        printf("UART:: RX ioctl res %d byteCount %u\n", res, byteCount);
-        if (res < 0) return PM3_ENOTTY;
+        res = ioctl(spu->fd, FIONREAD, &byteCount);
+//        PrintAndLogEx(ERR, "UART:: RX ioctl res %d byteCount %u", res, byteCount);
+        if (res < 0) {
+            // error occurred (maybe disconnected)
+            // This happens when USB-CDC connection is lost
+            return PM3_ENOTTY;
+        } else if (byteCount == 0) {
+            // select() > 0 && byteCount > 0 ===> data available
+            // select() > 0 && byteCount always equals to 0 ===> maybe disconnected
+            // This happens when TCP connection is lost
+            rx_empty_counter++;
+            if (rx_empty_counter > 3) {
+                return PM3_ENOTTY;
+            }
+        } else {
+            rx_empty_counter = 0;
+        }
+
+        // For UDP connection, put the incoming data into the buffer and handle them in the next round
+        if (spu->udpBuffer != NULL) {
+            if (RingBuf_getContinousAvailableSize(spu->udpBuffer) >= byteCount) {
+                // write to the buffer directly
+                res = read(spu->fd, RingBuf_getRearPtr(spu->udpBuffer), RingBuf_getAvailableSize(spu->udpBuffer));
+                if (res >= 0) {
+                    RingBuf_postEnqueueBatch(spu->udpBuffer, res);
+                }
+            } else {
+                // use transit buffer
+                uint8_t transitBuf[MAX(sizeof(PacketResponseNGRaw), sizeof(PacketResponseOLD)) * 30];
+                res = read(spu->fd, transitBuf, RingBuf_getAvailableSize(spu->udpBuffer));
+                RingBuf_enqueueBatch(spu->udpBuffer, transitBuf, res);
+            }
+            // Stop if the OS has some troubles reading the data
+            if (res < 0) {
+                return PM3_EIO;
+            }
+            continue;
+        }
 
         // Cap the number of bytes, so we don't overrun the buffer
         if (pszMaxRxLen - (*pszRxLen) < byteCount) {
-//            printf("UART:: RX prevent overrun (have %u, need %u)\n", pszMaxRxLen - (*pszRxLen), byteCount);
+//            PrintAndLogEx(ERR, "UART:: RX prevent overrun (have %u, need %u)", pszMaxRxLen - (*pszRxLen), byteCount);
             byteCount = pszMaxRxLen - (*pszRxLen);
         }
 
         // There is something available, read the data
-        res = read(((serial_port_unix *)sp)->fd, pbtRx + (*pszRxLen), byteCount);
+        res = read(spu->fd, pbtRx + (*pszRxLen), byteCount);
 
         // Stop if the OS has some troubles reading the data
         if (res <= 0) {
@@ -433,28 +571,29 @@ int uart_send(const serial_port sp, const uint8_t *pbtTx, const uint32_t len) {
     uint32_t pos = 0;
     fd_set rfds;
     struct timeval tv;
+    const serial_port_unix_t_t *spu = (serial_port_unix_t_t *)sp;
 
     while (pos < len) {
         // Reset file descriptor
         FD_ZERO(&rfds);
-        FD_SET(((serial_port_unix *)sp)->fd, &rfds);
+        FD_SET(spu->fd, &rfds);
         tv = timeout;
-        int res = select(((serial_port_unix *)sp)->fd + 1, NULL, &rfds, NULL, &tv);
+        int res = select(spu->fd + 1, NULL, &rfds, NULL, &tv);
 
         // Write error
         if (res < 0) {
-            printf("UART:: write error (%d)\n", res);
+            PrintAndLogEx(ERR, "UART:: write error (%d)", res);
             return PM3_ENOTTY;
         }
 
         // Write time-out
         if (res == 0) {
-            printf("UART:: write time-out\n");
+            PrintAndLogEx(ERR, "UART:: write time-out");
             return PM3_ETIMEOUT;
         }
 
         // Send away the bytes
-        res = write(((serial_port_unix *)sp)->fd, pbtTx + pos, len - pos);
+        res = write(spu->fd, pbtTx + pos, len - pos);
 
         // Stop if the OS has some troubles sending the data
         if (res <= 0)
@@ -466,7 +605,7 @@ int uart_send(const serial_port sp, const uint8_t *pbtTx, const uint32_t len) {
 }
 
 bool uart_set_speed(serial_port sp, const uint32_t uiPortSpeed) {
-    const serial_port_unix *spu = (serial_port_unix *)sp;
+    const serial_port_unix_t_t *spu = (serial_port_unix_t_t *)sp;
     speed_t stPortSpeed;
     switch (uiPortSpeed) {
         case 0:
@@ -558,14 +697,14 @@ bool uart_set_speed(serial_port sp, const uint32_t uiPortSpeed) {
     cfsetospeed(&ti, stPortSpeed);
     bool result = tcsetattr(spu->fd, TCSANOW, &ti) != -1;
     if (result)
-        conn.uart_speed = uiPortSpeed;
+        g_conn.uart_speed = uiPortSpeed;
     return result;
 }
 
 uint32_t uart_get_speed(const serial_port sp) {
     struct termios ti;
     uint32_t uiPortSpeed;
-    const serial_port_unix *spu = (serial_port_unix *)sp;
+    const serial_port_unix_t_t *spu = (serial_port_unix_t_t *)sp;
 
     if (tcgetattr(spu->fd, &ti) == -1)
         return 0;
@@ -648,4 +787,5 @@ uint32_t uart_get_speed(const serial_port sp) {
     };
     return uiPortSpeed;
 }
+
 #endif

@@ -1,10 +1,18 @@
 //-----------------------------------------------------------------------------
-// Colin Brigato, 2016, 2017, 2018, 2019
-// Christian Herrmann, 2017
+// Copyright (C) Colin Brigato, 2016
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // main code for HF Mifare aka ColinRun by Colin Brigato
 //-----------------------------------------------------------------------------
@@ -81,19 +89,19 @@
 
 */
 
-static uint8_t cjuid[10];
-static uint32_t cjcuid;
-static iso14a_card_select_t p_card;
-static int currline;
-static int currfline;
-static int curlline;
+static uint8_t colin_cjuid[10];
+static uint32_t colin_cjcuid;
+static iso14a_card_select_t colin_p_card;
+static int colin_currline;
+static int colin_currfline;
+static int colin_curlline;
 
 // TODO : Implement fast read of KEYS like in RFIdea
 // also http://ext.delaat.net/rp/2015-2016/p04/report.pdf
 
 // Colin's VIGIKPWN sniff/simulate/clone repeat routine for HF Mifare
 
-static const uint8_t is_hex[] = {
+static const uint8_t colin_is_hex[] = {
     0, 0,  0,  0,  0,  0,  0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0, 0, 0, 0,
     0, 0,  0,  0,  0,  0,  0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 0, 0, 0, 0,
     0, 11, 12, 13, 14, 15, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0, 0, 0, 0,
@@ -112,8 +120,8 @@ static uint64_t hex2i(const char *s) {
         s += 2;
     else if (*s == 'x')
         s++;
-    while (is_hex[(uint8_t)*s])
-        val = (val << 4) | (is_hex[(uint8_t) * (s++)] - 1);
+    while (colin_is_hex[(uint8_t)*s])
+        val = (val << 4) | (colin_is_hex[(uint8_t) * (s++)] - 1);
     return val;
 }
 
@@ -143,12 +151,12 @@ static uint64_t hex2i(const char *s) {
     "\"0x8829da9daf76\",\"0x8829da9daf76\","
     "\"0x8829da9daf76\",\"0x8829da9daf76\"]}";*/
 
-typedef struct MFC1KSchema {
+typedef struct {
     uint8_t name[32];
     uint64_t trigger;
     uint64_t keysA[16];
     uint64_t keysB[16];
-} MFC1KSchema;
+} MFC1KSchema_t;
 
 #define MAX_SCHEMAS 4
 
@@ -162,9 +170,9 @@ static void scan_keys(const char *str, int len, uint64_t *user_data) {
     }
 }
 
-static MFC1KSchema Schemas[MAX_SCHEMAS];
+static MFC1KSchema_t colin_Schemas[MAX_SCHEMAS];
 
-/*MFC1KSchema Noralsy = {
+/*MFC1KSchema_t Noralsy = {
     .name = "Noralsy",
     .trigger = 0x414c41524f4e,
     .keysA = {0x414c41524f4e, 0x414c41524f4e, 0x414c41524f4e, 0x414c41524f4e, 0x414c41524f4e, 0x414c41524f4e,
@@ -174,7 +182,7 @@ static MFC1KSchema Schemas[MAX_SCHEMAS];
               0x424c41524f4e, 0x424c41524f4e, 0x424c41524f4e, 0x424c41524f4e, 0x424c41524f4e, 0x424c41524f4e,
               0x424c41524f4e, 0x424c41524f4e, 0x424c41524f4e, 0x424c41524f4e}};
 
-MFC1KSchema InfiHexact = {.name = "Infineon/Hexact",
+MFC1KSchema_t InfiHexact = {.name = "Infineon/Hexact",
                           .trigger = 0x484558414354,
                           .keysA = {0x484558414354, 0x484558414354, 0x484558414354, 0x484558414354, 0x484558414354,
                                     0x484558414354, 0x484558414354, 0x484558414354, 0x484558414354, 0x484558414354,
@@ -185,7 +193,7 @@ MFC1KSchema InfiHexact = {.name = "Infineon/Hexact",
                                     0x8fa1d601d0a2, 0x89347350bd36, 0x66d2b7dc39ef, 0x6bc1e1ae547d, 0x22729a9bd40f}};
 */
 
-/*MFC1KSchema UrmetCaptive = {
+/*MFC1KSchema_t UrmetCaptive = {
     .name = "Urmet Captive",
     .trigger = 0x8829da9daf76,
     .keysA = {0x8829da9daf76, 0x8829da9daf76, 0x8829da9daf76, 0x8829da9daf76, 0x8829da9daf76, 0x8829da9daf76,
@@ -196,16 +204,16 @@ MFC1KSchema InfiHexact = {.name = "Infineon/Hexact",
               0x8829da9daf76, 0x8829da9daf76, 0x8829da9daf76, 0x8829da9daf76}};
 */
 
-static int total_schemas = 0;
+static int colin_total_schemas = 0;
 
-static void add_schema(MFC1KSchema *p, MFC1KSchema a, int *schemas_counter) {
+static void add_schema(MFC1KSchema_t *p, MFC1KSchema_t a, int *schemas_counter) {
     if (*schemas_counter < MAX_SCHEMAS) {
         p[*schemas_counter] = a;
         *schemas_counter += 1;
     }
 }
 /*
-static void delete_schema(MFC1KSchema *p, int *schemas_counter, int index) {
+static void delete_schema(MFC1KSchema_t *p, int *schemas_counter, int index) {
     if (*schemas_counter > 0 && index < *schemas_counter && index > -1) {
         int last_index = *schemas_counter - 1;
         for (int i = index; i < last_index; i++) {
@@ -216,18 +224,18 @@ static void delete_schema(MFC1KSchema *p, int *schemas_counter, int index) {
 }
 */
 static void cjSetCursFRight(void) {
-    vtsend_cursor_position(NULL, 98, (currfline));
-    currfline++;
+    vtsend_cursor_position(NULL, 98, (colin_currfline));
+    colin_currfline++;
 }
 
 static void cjSetCursRight(void) {
-    vtsend_cursor_position(NULL, 59, (currline));
-    currline++;
+    vtsend_cursor_position(NULL, 59, (colin_currline));
+    colin_currline++;
 }
 
 static void cjSetCursLeft(void) {
-    vtsend_cursor_position(NULL, 0, (curlline));
-    curlline++;
+    vtsend_cursor_position(NULL, 0, (colin_curlline));
+    colin_curlline++;
 }
 
 static void cjTabulize(void) { DbprintfEx(FLAG_RAWPRINT, "\t\t\t"); }
@@ -256,12 +264,12 @@ static void add_schemas_from_json_in_spiffs(char *filename) {
     for (i = 0; json_scanf_array_elem(jsonfile, len, "", i, &t) > 0; i++) {
         char *tmpname;
         char *tmptrigger;
-        MFC1KSchema tmpscheme;
+        MFC1KSchema_t tmpscheme;
         json_scanf(t.ptr, t.len, "{ name:%Q, trigger:%Q, keysA:%M, keysB:%M}", &tmpname, &tmptrigger, scan_keys,
                    &tmpscheme.keysA, scan_keys, &tmpscheme.keysB);
         memcpy(tmpscheme.name, tmpname, 32);
         tmpscheme.trigger = hex2i(tmptrigger);
-        add_schema(Schemas, tmpscheme, &total_schemas);
+        add_schema(colin_Schemas, tmpscheme, &colin_total_schemas);
         DbprintfEx(FLAG_NEWLINE, "Schema loaded : %s", tmpname);
         cjSetCursLeft();
     }
@@ -285,7 +293,7 @@ static void ReadLastTagFromFlash(void) {
     rdv40_spiffs_read_as_filetype((char *)HFCOLIN_LASTTAG_SYMLINK, (uint8_t *)mem, len, RDV40_SPIFFS_SAFETY_SAFE);
 
     // copy 64blocks (16bytes) starting w block0, to emulator mem.
-    emlSetMem(mem, 0, 64);
+    emlSetMem_xt(mem, 0, 64, 16);
 
     DbprintfEx(FLAG_NEWLINE, "[OK] Last tag recovered from FLASHMEM set to emulator");
     cjSetCursLeft();
@@ -310,7 +318,7 @@ void WriteTagToFlash(uint32_t uid, size_t size) {
     num_to_bytes(uid, 4, buid);
     sprintf(dest, "hf_colin/mf_%02x%02x%02x%02x.bin", buid[0], buid[1], buid[2], buid[3]);
 
-    // TODO : by using safe function for multiple writes we are both breaking cache mecanisms and making useless and
+    // TODO : by using safe function for multiple writes we are both breaking cache mechanisms and making useless and
     // unoptimized mount operations we should manage at out level the mount status before and after the whole
     // standalone mode
     rdv40_spiffs_write((char *)dest, (uint8_t *)data, len, RDV40_SPIFFS_SAFETY_SAFE);
@@ -333,18 +341,18 @@ void RunMod(void) {
     Dbprintf(">>  HF Mifare ultra fast sniff/sim/clone  a.k.a VIGIKPWN Started  <<");
 
     // turn off all debugging.
-    DBGLEVEL = DBG_NONE;
+    g_dbglevel = DBG_NONE;
 
-    // add_schema(Schemas, Noralsy, &total_schemas);
-    // add_schema(Schemas, InfiHexact, &total_schemas);
+    // add_schema(colin_Schemas, Noralsy, &colin_total_schemas);
+    // add_schema(colin_Schemas, InfiHexact, &colin_total_schemas);
     // add_schema_from_json_in_spiffs((char *)HFCOLIN_URMETCAPTIVE_JSON);
-    // add_schema(Schemas, UrmetCaptive, &total_schemas);
+    // add_schema(colin_Schemas, UrmetCaptive, &colin_total_schemas);
 
-    currline = 20;
-    curlline = 20;
-    currfline = 24;
-    memset(cjuid, 0, sizeof(cjuid));
-    cjcuid = 0;
+    colin_currline = 20;
+    colin_curlline = 20;
+    colin_currfline = 24;
+    memset(colin_cjuid, 0, sizeof(colin_cjuid));
+    colin_cjcuid = 0;
     uint8_t sectorsCnt = (MF1KSZ / MF1KSZSIZE);
     uint64_t key64;    // Defines current key
     uint8_t *keyBlock; // Where the keys will be held in memory.
@@ -466,9 +474,9 @@ void RunMod(void) {
     DbprintfEx(FLAG_NEWLINE, "%s%s%s", _XCYAN_, sub_banner, _XWHITE_);
     DbprintfEx(FLAG_NEWLINE, "%s>>%s C.J.B's MifareFastPwn Started\r\n", _XRED_, _XWHITE_);
 
-    currline = 20;
-    curlline = 20;
-    currfline = 24;
+    colin_currline = 20;
+    colin_curlline = 20;
+    colin_currfline = 24;
     cjSetCursLeft();
 
     add_schemas_from_json_in_spiffs((char *)HFCOLIN_SCHEMAS_JSON);
@@ -484,22 +492,18 @@ failtag:
     iso14443a_setup(FPGA_HF_ISO14443A_READER_LISTEN);
     SpinOff(50);
     LED_A_ON();
-    uint8_t ticker = 0;
 
-    while (!iso14443a_select_card(cjuid, &p_card, &cjcuid, true, 0, true)) {
+    while (!iso14443a_select_card(colin_cjuid, &colin_p_card, &colin_cjcuid, true, 0, true)) {
         WDT_HIT();
-
-        ticker++;
-        if (ticker % 64 == 0) {
-            LED_A_INV();
-        }
-
         if (BUTTON_HELD(10) == BUTTON_HOLD) {
             WDT_HIT();
             DbprintfEx(FLAG_NEWLINE, "\t\t\t[    READING FLASH   ]");
             ReadLastTagFromFlash();
             goto readysim;
         }
+        FpgaWriteConfWord(FPGA_MAJOR_MODE_OFF);
+        SpinDelay(500);
+        LED_A_INV();
     }
 
     SpinOff(50);
@@ -511,9 +515,9 @@ failtag:
     DbprintfEx(FLAG_NEWLINE, "\t\t\t       `---> Breaking keys ---->");
     cjSetCursRight();
 
-    DbprintfEx(FLAG_NEWLINE, "\t%sGOT TAG :%s %08x%s", _XRED_, _XCYAN_, cjcuid, _XWHITE_);
+    DbprintfEx(FLAG_NEWLINE, "\t%sGOT TAG :%s %08x%s", _XRED_, _XCYAN_, colin_cjcuid, _XWHITE_);
 
-    if (cjcuid == 0) {
+    if (colin_cjcuid == 0) {
         cjSetCursLeft();
         DbprintfEx(FLAG_NEWLINE, "%s>>%s BUG: 0000_CJCUID! Retrying...", _XRED_, _XWHITE_);
         SpinErr(LED_A, 100, 8);
@@ -568,7 +572,7 @@ failtag:
                 err = 1;
                 allKeysFound = false;
                 // used in portable imlementation on microcontroller: it reports back the fail and open the
-                // standalone lock reply_old(CMD_CJB_FSMSTATE_MENU, 0, 0, 0, 0, 0);
+                // standalone lock reply_ng(CMD_CJB_FSMSTATE_MENU, NULL, 0);
                 break;
             } else if (key == -2) {
                 err = 1; // Can't select card.
@@ -584,8 +588,8 @@ failtag:
                 DbprintfEx(FLAG_NEWLINE, "SEC: %02x ; KEY : %012" PRIx64 " ; TYP: %i", sec, key64, type);
                 /*reply_old(CMD_CJB_INFORM_CLIENT_KEY, 12, sec, type, tosendkey, 12);*/
 
-                for (int i = 0; i < total_schemas; i++) {
-                    if (key64 == Schemas[i].trigger) {
+                for (int i = 0; i < colin_total_schemas; i++) {
+                    if (key64 == colin_Schemas[i].trigger) {
 
                         cjSetCursLeft();
                         DbprintfEx(FLAG_NEWLINE, "%s>>>>>>>>>>>>!*STOP*!<<<<<<<<<<<<<<%s", _XRED_, _XWHITE_);
@@ -594,7 +598,7 @@ failtag:
                         DbprintfEx(FLAG_NEWLINE, "    .TAG SEEMS %sDETERMINISTIC%s.     ", _XGREEN_, _XWHITE_);
                         cjSetCursLeft();
 
-                        DbprintfEx(FLAG_NEWLINE, "%sDetected: %s %s%s", _XORANGE_, _XCYAN_, Schemas[i].name, _XWHITE_);
+                        DbprintfEx(FLAG_NEWLINE, "%sDetected: %s %s%s", _XORANGE_, _XCYAN_, colin_Schemas[i].name, _XWHITE_);
                         cjSetCursLeft();
 
                         DbprintfEx(FLAG_NEWLINE, "...%s[%sKey_derivation_schemeTest%s]%s...", _XYELLOW_, _XGREEN_,
@@ -605,7 +609,7 @@ failtag:
 
                         uint16_t t = 0;
                         for (uint16_t s = 0; s < sectorsCnt; s++) {
-                            num_to_bytes(Schemas[i].keysA[s], 6, foundKey[t][s]);
+                            num_to_bytes(colin_Schemas[i].keysA[s], 6, foundKey[t][s]);
                             sprintf(tosendkey, "%02x%02x%02x%02x%02x%02x", foundKey[t][s][0], foundKey[t][s][1],
                                     foundKey[t][s][2], foundKey[t][s][3], foundKey[t][s][4], foundKey[t][s][5]);
                             cjSetCursRight();
@@ -613,7 +617,7 @@ failtag:
                         }
                         t = 1;
                         for (uint16_t s = 0; s < sectorsCnt; s++) {
-                            num_to_bytes(Schemas[i].keysB[s], 6, foundKey[t][s]);
+                            num_to_bytes(colin_Schemas[i].keysB[s], 6, foundKey[t][s]);
                             sprintf(tosendkey, "%02x%02x%02x%02x%02x%02x", foundKey[t][s][0], foundKey[t][s][1],
                                     foundKey[t][s][2], foundKey[t][s][3], foundKey[t][s][4], foundKey[t][s][5]);
                             cjSetCursRight();
@@ -646,7 +650,7 @@ failtag:
         for (uint8_t t = 0; t < 2; t++) {
             memcpy(mblock + t * 10, foundKey[t][sectorNo], 6);
         }
-        emlSetMem(mblock, FirstBlockOfSector(sectorNo) + NumBlocksPerSector(sectorNo) - 1, 1);
+        emlSetMem_xt(mblock, FirstBlockOfSector(sectorNo) + NumBlocksPerSector(sectorNo) - 1, 1, 16);
     }
     cjSetCursLeft();
 
@@ -688,7 +692,7 @@ failtag:
     cjSetCursLeft();
     cjSetCursLeft();
 
-    WriteTagToFlash(cjcuid, 1024);
+    WriteTagToFlash(colin_cjcuid, 1024);
 
 readysim:
     cjSetCursLeft();
@@ -715,7 +719,7 @@ readysim:
 
     /*
     uint16_t flags = 0;
-    switch (p_card.uidlen) {
+    switch (colin_p_card.uidlen) {
         case 10:
             flags = FLAG_10B_UID_IN_DATA;
             break;
@@ -743,7 +747,7 @@ readysim:
     DbprintfEx(FLAG_NEWLINE, "\n\n\n\n\n\n\n\nn\n\nn\n\n\nflags: %d (0x%02x)", flags, flags);
     cjSetCursLeft();
     SpinOff(1000);
-    Mifare1ksim(flags, 0, cjuid, 0, 0);
+    Mifare1ksim(flags, 0, colin_cjuid, 0, 0);
     LED_C_OFF();
     SpinOff(50);
     vtsend_cursor_position_restore(NULL);
@@ -799,42 +803,42 @@ int e_MifareECardLoad(uint32_t numofsectors, uint8_t keytype) {
 
     bool isOK = true;
 
-    if (!iso14443a_select_card(cjuid, &p_card, &cjcuid, true, 0, true)) {
+    if (!iso14443a_select_card(colin_cjuid, &colin_p_card, &colin_cjcuid, true, 0, true)) {
         isOK = false;
     }
 
     for (uint8_t s = 0; isOK && s < numSectors; s++) {
         uint64_t ui64Key = emlGetKey(s, keyType);
         if (s == 0) {
-            if (isOK && mifare_classic_auth(pcs, cjcuid, FirstBlockOfSector(s), keyType, ui64Key, AUTH_FIRST)) {
+            if (isOK && mifare_classic_auth(pcs, colin_cjcuid, FirstBlockOfSector(s), keyType, ui64Key, AUTH_FIRST)) {
                 break;
             }
         } else {
-            if (isOK && mifare_classic_auth(pcs, cjcuid, FirstBlockOfSector(s), keyType, ui64Key, AUTH_NESTED)) {
+            if (isOK && mifare_classic_auth(pcs, colin_cjcuid, FirstBlockOfSector(s), keyType, ui64Key, AUTH_NESTED)) {
                 isOK = false;
                 break;
             }
         }
 
         for (uint8_t blockNo = 0; isOK && blockNo < NumBlocksPerSector(s); blockNo++) {
-            if (isOK && mifare_classic_readblock(pcs, cjcuid, FirstBlockOfSector(s) + blockNo, dataoutbuf)) {
+            if (isOK && mifare_classic_readblock(pcs, FirstBlockOfSector(s) + blockNo, dataoutbuf)) {
                 isOK = false;
                 break;
             };
             if (isOK) {
                 if (blockNo < NumBlocksPerSector(s) - 1) {
-                    emlSetMem(dataoutbuf, FirstBlockOfSector(s) + blockNo, 1);
+                    emlSetMem_xt(dataoutbuf, FirstBlockOfSector(s) + blockNo, 1, 16);
                 } else {
                     // sector trailer, keep the keys, set only the AC
                     emlGetMem(dataoutbuf2, FirstBlockOfSector(s) + blockNo, 1);
                     memcpy(&dataoutbuf2[6], &dataoutbuf[6], 4);
-                    emlSetMem(dataoutbuf2, FirstBlockOfSector(s) + blockNo, 1);
+                    emlSetMem_xt(dataoutbuf2, FirstBlockOfSector(s) + blockNo, 1, 16);
                 }
             }
         }
     }
 
-    int res = mifare_classic_halt(pcs, cjcuid);
+    int res = mifare_classic_halt(pcs);
     (void)res;
 
     crypto1_deinit(pcs);
@@ -858,15 +862,15 @@ int cjat91_saMifareChkKeys(uint8_t blockNo, uint8_t keyType, bool clearTrace,
     for (uint8_t i = 0; i < keyCount; i++) {
 
         /* no need for anticollision. just verify tag is still here */
-        // if (!iso14443a_fast_select_card(cjuid, 0)) {
-        if (!iso14443a_select_card(cjuid, &p_card, &cjcuid, true, 0, true)) {
+        // if (!iso14443a_fast_select_card(colin_cjuid, 0)) {
+        if (!iso14443a_select_card(colin_cjuid, &colin_p_card, &colin_cjcuid, true, 0, true)) {
             cjSetCursLeft();
             DbprintfEx(FLAG_NEWLINE, "%sFATAL%s : E_MF_LOSTTAG", _XRED_, _XWHITE_);
             break;
         }
 
         uint64_t ui64Key = bytes_to_num(datain + i * 6, 6);
-        if (mifare_classic_auth(pcs, cjcuid, blockNo, keyType, ui64Key, AUTH_FIRST)) {
+        if (mifare_classic_auth(pcs, colin_cjcuid, blockNo, keyType, ui64Key, AUTH_FIRST)) {
             uint8_t dummy_answer = 0;
             ReaderTransmit(&dummy_answer, 1, NULL);
             // wait for the card to become ready again
@@ -912,8 +916,8 @@ void saMifareMakeTag(void) {
 
         if (saMifareCSetBlock(0, flags & 0xFE, blockNum, mblock)) {
             cjSetCursFRight();
-            if (currfline > 53) {
-                currfline = 54;
+            if (colin_currfline > 53) {
+                colin_currfline = 54;
             }
             DbprintfEx(FLAG_NEWLINE, "Block :%02x %sOK%s", blockNum, _XGREEN_, _XWHITE_);
             continue;
@@ -977,12 +981,12 @@ int saMifareCSetBlock(uint32_t arg0, uint32_t arg1, uint32_t arg2, uint8_t *data
 
         // get UID from chip
         if (workFlags & 0x01) {
-            if (!iso14443a_select_card(cjuid, &p_card, &cjcuid, true, 0, true)) {
+            if (!iso14443a_select_card(colin_cjuid, &colin_p_card, &colin_cjcuid, true, 0, true)) {
                 DbprintfEx(FLAG_NEWLINE, "Can't select card");
                 break;
             };
 
-            if (mifare_classic_halt(NULL, cjcuid)) {
+            if (mifare_classic_halt(NULL)) {
                 DbprintfEx(FLAG_NEWLINE, "Halt error");
                 break;
             };
@@ -1002,7 +1006,7 @@ int saMifareCSetBlock(uint32_t arg0, uint32_t arg1, uint32_t arg2, uint8_t *data
                 break;
             };
 
-            if (mifare_classic_halt(NULL, cjcuid)) {
+            if (mifare_classic_halt(NULL)) {
                 DbprintfEx(FLAG_NEWLINE, "Halt error");
                 break;
             };
@@ -1039,7 +1043,7 @@ int saMifareCSetBlock(uint32_t arg0, uint32_t arg1, uint32_t arg2, uint8_t *data
         };
 
         if (workFlags & 0x04) {
-            if (mifare_classic_halt(NULL, cjcuid)) {
+            if (mifare_classic_halt(NULL)) {
                 cjSetCursFRight();
 
                 DbprintfEx(FLAG_NEWLINE, "Halt error");

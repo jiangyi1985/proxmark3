@@ -1,21 +1,42 @@
-# Various notes about UART and baudrates
+# Notes about UART and baudrates
+<a id="top"></a>
 
 Proxmark3 RDV4 can interact with the client program running on a host via several means, let's go through each of them and study the notion of baudrate.
 
+# Table of Contents
+- [Notes about UART and baudrates](#notes-about-uart-and-baudrates)
+- [Table of Contents](#table-of-contents)
+  - [USB-CDC ACM](#usb-cdc-acm)
+  - [Proxmark3 FPC USART](#proxmark3-fpc-usart)
+  - [Proxmark3 FPC USART + BT add-on (blue shark)](#proxmark3-fpc-usart--bt-add-on-blue-shark)
+    - [BT add-on AT configuration mode](#bt-add-on-at-configuration-mode)
+    - [BT add-on connected mode](#bt-add-on-connected-mode)
+    - [RFCOMM](#rfcomm)
+    - [BT add-on baudrate](#bt-add-on-baudrate)
+    - [BT on host side: internal BT](#bt-on-host-side-internal-bt)
+    - [BT on host side: HC-06 dongle](#bt-on-host-side-hc-06-dongle)
+    - [HC-06 dongle AT configuration mode](#hc-06-dongle-at-configuration-mode)
+  - [Proxmark3 FPC USART + FTDI](#proxmark3-fpc-usart--ftdi)
+  - [BT add-on + FTDI](#bt-add-on--ftdi)
+  - [HC-06 AT Commands](#hc-06-at-commands)
+
+
 
 ## USB-CDC ACM
+^[Top](#top)
 
 USB CDC (Communications Device Class) ACM (Abstract Control Model) is a way to emulate serial ports over USB.
 On the host, it appears as a virtual serial port, e.g. `/dev/ttyACM0`.
 
 This is the basic way to communicate with all versions of Proxmark3 (with fairly recent FW, it used to be USB-HID-based long time ago).
-On the Proxmark side, USB-CDC is provided by `common/usb_cdc.c`.
+On the Proxmark3 side, USB-CDC is provided by `common/usb_cdc.c`.
 
 In the USB CDC ACM descriptors, the Proxmark3 advertises a baudrate (USART_BAUD_RATE) but this is purely informative and has no real meaning.
 The real communication speed relates only to the USB link and is roughly about 7Mbps.
 In USB CDC ACM the host could "set" other baudrates and the USB CDC device would be informed of the changes (see `SET_LINE_CODING` and `GET_LINE_CODING`), which is potentially interesting if, behind, it has to configure a real UART, but we're not in this type of setup so baudrate notion on USB CDC (visible e.g. with `stty -F /dev/ttyACM0`) can simply be totally ignored. 
 
 ## Proxmark3 FPC USART
+^[Top](#top)
 
 Proxmark3 RDV4 has a FPC connector outputting on 2 pins a USART from the ARM:
 
@@ -28,20 +49,22 @@ USART support is in `common/usart.c`.
 
 There are mainly two ways to use this USART:
 * connect the host client to the Proxmark3 via this USART instead of USB-CDC, this is the `FPC_USART_HOST` option you can add to `PLATFORM_EXTRAS` in `Makefile.platform`. The most used way is through the BT add-on (blue shark) that we will cover later. Instead of BT add-on, we can also use e.g. a FTDI cable (mostly for internal development, it's much slower than USB-CDC anyway) or in the future other ways to connect the host such as a USART-to-Wi-Fi bridge.
-* connect "slave" devices to the Proxmark3 to add functionnalities. In such case, the host client will use USB-CDC and the USART will be use to, e.g. connect the Proxmark3 to various daughterboards. These is no such example of daughterboard as of today, except when we're talking to the BT add-on in its AT configuration mode.
+* connect "slave" devices to the Proxmark3 to add functionalities. In such case, the host client will use USB-CDC and the USART will be use to, e.g. connect the Proxmark3 to various daughterboards. These is no such example of daughterboard as of today, except when we're talking to the BT add-on in its AT configuration mode.
 
 This USART can be reached from the host client (if connected via USB-CDC) through the following commands, available when you add `FPC_USART_DEV` to `PLATFORM_EXTRAS` in `Makefile.platform`:
 * `usart config`, to configure the baudrate and the parity of the Proxmark3 USART
 * `usart txrx/tx/rx/txhex/rxhex` to transmit and receive bytes
 
-So, `usart config` changes the Proxmark3 USART baudrate and parity, while e.g. `usart txrx d AT+Px` and `usart txrx d AT+BAUDx` changes the BT add-on parity and baudrate.
+So, `usart config` changes the Proxmark3 USART baudrate and parity, while e.g. `usart txrx -d "AT+Px"` and `usart txrx -d "AT+BAUDx"` changes the BT add-on parity and baudrate.
 And for things to work fine, both sets have to match!
 
 Internally, the desired baudrate is converted to UART settings: a BRGR and a FP. The resulting baudrate will be close to but not always equal to the desired baudrate. Serial ports typically have some error tolerance in the actual baudrates. Theoretically < 2.5% on each side (so 5% in total), < 2% to be on the safe side. In the current firmware configuration, the Proxmark3 can provide any baudrate up to 2Mbauds with an error of max 2%, and selected baudrates up to 6Mbauds (tested with a FTDI C232HM DDHSL-0 cable).
 
 ## Proxmark3 FPC USART + BT add-on (blue shark)
+^[Top](#top)
 
 ### BT add-on AT configuration mode
+^[Top](#top)
 
 When the BT add-on is turned on but no actively connected to a host, it's in a configuration mode where it accepts "AT" commands and its blue LED is blinking at about 1Hz.
 
@@ -49,23 +72,26 @@ Some specific commands are available when you add `BTADDON` to `PLATFORM_EXTRAS`
 * `usart btpin`, to change the BT add-on PIN
 * `usart btfactory`, to guess the current BT add-on UART settings and to reset its configuration.
 
-`usart btfactory` changes several times the Proxmark3 USART baudrate and parity till it matches the BT add-on settings, then changes the baudrate and parity of the add-on to a default value, then changes the Proxmark USART to the same default values, so everything should be back in order. (`btfactory` does more but we're only interested in baudrate in this discussion)
+`usart btfactory` changes several times the Proxmark3 USART baudrate and parity till it matches the BT add-on settings, then changes the baudrate and parity of the add-on to a default value, then changes the Proxmark3 USART to the same default values, so everything should be back in order. (`btfactory` does more but we're only interested in baudrate in this discussion)
 
-Manual configuration is also possible with `usart txrx d AT+Px` and `usart txrx d AT+BAUDx`.
+Manual configuration is also possible with `usart txrx -d "AT+Px"` and `usart txrx -d "AT+BAUDx"`.
 
 ### BT add-on connected mode
+^[Top](#top)
 
 When the BT add-on is paired with a host and the host establishes an active connection, the blue LED turns on steadily.
 
 The add-on acts as a bridge, between its UART and the BT communication channel, here a RFCOMM channel.
 
 ### RFCOMM
+^[Top](#top)
 
 The Bluetooth RFCOMM protocol provides an emulation of serial ports over the L2CAP protocol ([ref](https://www.amd.e-technik.uni-rostock.de/ma/gol/lectures/wirlec/bluetooth_info/rfcomm.html)).
 
-As for USB-CDC, the real speed of the link is unrelated to serial baudrate notion. Litterature mentions a maximal value of 360kbps for some implementations, but the HC-06 Bluetooth module within the BT add-on is limited as the vast majority of similar devices to 128kbps.
+As for USB-CDC, the real speed of the link is unrelated to serial baudrate notion. Literature mentions a maximal value of 360kbps for some implementations, but the HC-06 Bluetooth module within the BT add-on is limited as the vast majority of similar devices to 128kbps.
 
 ### BT add-on baudrate
+^[Top](#top)
 
 Which baudrate will make sense?
 
@@ -78,6 +104,7 @@ Using 115200 is safe and within the 128kbps limit.
 Using 230400 allows to maximize the BT channel capacity, but the gain is limited, about 10-15% faster than 115200. There is also a risk to take into account: you're delivering data too fast to the HC-06 than what it's capable to send over RFCOMM. So you're filling the internal buffer faster than it can be emptied. If you're doing it for too many data, you'll reach a point where data will be lost (once the internal buffer is full), which is observable with `hw status` for higher baudrates at the time of writing (`b17da830edadb8462e02a95a00b4a58302cce71b`).
 
 ### BT on host side: internal BT
+^[Top](#top)
 
 On the other side of the BT link is the host. If it has built-in Bluetooth, the host can present a virtual serial port to the Proxmark3 client.
 E.g. on Linux, `rfcomm` allows to create such bindings of a BT device and a virtual port: `rfcomm bind rfcomm0 20:19:04:20:04:08` will create the virtual port `/dev/rfcomm0`.
@@ -89,6 +116,7 @@ Note that the rfcomm implementation separates pairing from actual connection:
 * when the program closes, the link will be closed and the BT add-on blue LED will blink again, showing that the BT ad-on is in AT configuration mode.
 
 ### BT on host side: HC-06 dongle
+^[Top](#top)
 
 On the other side of the BT link is the host. If it does not have a built-in Bluetooth, the host can use
 * a generic BT add-on, and we're back in the previous case
@@ -111,12 +139,14 @@ The USB-UART speed is selected when a program opens the port. E.g.
 * the Python script meant to configure HC-06 dongle. The baudrate is given as option to `serial.Serial()` when opening `/dev/ttyUSB0`.
 
 ### HC-06 dongle AT configuration mode
+^[Top](#top)
 
 When the BT add-on is turned off, the HC-06 dongle will not be connected and will fall back into its AT configuration mode (its LED is blinking).
 
 `tools/btaddon/hc06_factory.py` changes several times the USB-UART baudrate and parity till it matches the HC-06 dongle settings, then changes the baudrate and parity of the dongle to a default value. (`hc06_factory.py` does more but we're only interested in baudrate in this discussion)
 
 ## Proxmark3 FPC USART + FTDI
+^[Top](#top)
 
 Just for completeness, let's mention the possibility to connect the Proxmark3 to the host via FPC and a USB-UART bridge such as a FTDI cable (or CP2102, ch341, PL2303...).
 It's not very interesting because USB-CDC is faster anyway.
@@ -124,6 +154,7 @@ It's not very interesting because USB-CDC is faster anyway.
 In that case, Proxmark3 USART settings (configured e.g. via `usart config` while connected by USB-CDC) have to match FTDI cable settings, selected by the program opening the serial port (`/dev/ttyUSB0`).
 
 ## BT add-on + FTDI
+^[Top](#top)
 
 Just for completeness, let's mention the possibility to connect the BT add-on to the host via FPC and a USB-UART bridge such as a FTDI cable (or CP2102, ch341, PL2303...).
 The only interest is for debug purposes, e.g. to reconfigure an add-on from the host rather than from the Proxmark3 itself.
@@ -148,6 +179,7 @@ Turn BTpower switch ON, leave Battery switch OFF
 Use e.g. `tools/btaddon/hc06_factory.py` with `role = b'S'`
 
 ## HC-06 AT Commands
+^[Top](#top)
 
 The HC-06 supports a subset of the AT commands and they are listed below. The commands are limited and vary in how to give parameters. A pure informative command like AT+VERSION just returns a string with current firmware the HC-06 has installed.
 
@@ -167,7 +199,7 @@ The ROLE command takes its parameter after an equal sign:
 
 |Command            |Description                                           |Reply         |
 |-------------------|------------------------------------------------------|--------------|
-|`AT+VERSION`       |print firmware version                                |`hc01.comV2.0`|
+|`AT+VERSION`       |print firmware version                                |`hc01.comV2.0` or `BT SPP V3.0`|
 |`AT+BAUD8`         |set baudrate to 115200                                |`OK115200`    |
 |`AT+PIN1234`       |set PINCODE to 1234. (must be numbers)                |`OKsetPIN`    |
 |`AT+NAMEPM3_RDV4.0`|set device name (as shown to BT hosts) to `PM3_RDV4.0`|`OKsetname`   |

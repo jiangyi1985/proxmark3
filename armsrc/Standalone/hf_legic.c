@@ -1,10 +1,18 @@
 //-----------------------------------------------------------------------------
-// (c) Stefanie Hofmann, 2020
-// (c) Uli Heilmeier, 2020
+// Copyright (C) Stefanie Hofmann and Uli Heilmeier, 2020
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // main code for Legic Prime read/sim
 //-----------------------------------------------------------------------------
@@ -22,7 +30,6 @@
 #include "legic.h"          // legic_card_select_t struct
 #include "spiffs.h"         // flashmem
 
-
 /*
  * To list all dump files from flash:
  *
@@ -31,7 +38,7 @@
  *
  * To retrieve dump files from flash:
  *
- * 1. mem spiffs dump o hf-legic-XXYYZZWW-dump.bin f hf-legic-XXYYZZWW-dump.bin
+ * 1. mem spiffs dump -s hf-legic-XXYYZZWW-dump.bin -d hf-legic-XXYYZZWW-dump.bin
  *    Copies log file from flash to your client.
  *
  *
@@ -40,7 +47,7 @@
  *
  * To delete a dump file from flash:
  *
- * 1. mem spiffs remove hf-legic-XXYYZZWW-dump.bin
+ * 1. mem spiffs remove -f hf-legic-XXYYZZWW-dump.bin
  *
 */
 
@@ -51,7 +58,7 @@ static void DownloadLogInstructions(void) {
     Dbprintf("[=]   " _YELLOW_("-") " mem spiffs tree");
     Dbprintf("");
     Dbprintf("[=] To save a dump file from flash to client:");
-    Dbprintf("[=]   " _YELLOW_("-") " mem spiffs dump o hf-legic-UID-dump.bin f hf-legic-UID-dump.bin");
+    Dbprintf("[=]   " _YELLOW_("-") " mem spiffs dump -s hf-legic-UID-dump.bin -d hf-legic-UID-dump.bin");
 }
 #endif
 
@@ -106,6 +113,7 @@ void RunMod(void) {
     FpgaDownloadAndGo(FPGA_BITSTREAM_HF);
     Dbprintf("[=] >>  HF Legic Prime Read/Simulate Started  <<");
     DbpString("[=] press and HOLD button to exit standalone mode");
+
     for (;;) {
         WDT_HIT();
 
@@ -124,7 +132,7 @@ void RunMod(void) {
         DbpString("[=] looking for tags");
         int read_success = PM3_ESOFT;
 
-        //search for legic card until reading successfull or button pressed
+        //search for legic card until reading successful or button pressed
         do {
             LED_C_ON();
             SpinDelay(500);
@@ -132,7 +140,7 @@ void RunMod(void) {
             // we just read 1024 bytes
             read_success = LegicRfReaderEx(0, 1024, 0x55);
 
-        } while (read_success == PM3_ESOFT && !BUTTON_PRESS());
+        } while ((read_success == PM3_ESOFT) && (BUTTON_PRESS() == false));
 
         LEDsoff();
 
@@ -163,7 +171,7 @@ void RunMod(void) {
             }
 
             // The read data is migrated to a MIM1024 card
-            LegicRfSimulate(ct);
+            LegicRfSimulate(ct, false);
         }
     }
 

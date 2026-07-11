@@ -33,15 +33,6 @@ void amiitool_usage(void) {
            );
 }
 
-static bool LoadAmiikey(nfc3d_amiibo_keys keys, char *keyfile) {
-
-    if (!nfc3d_amiibo_load_keys(&keys, keyfile)) {
-        PrintAndLogEx(ERR, "Could not load keys from '%s'", keyfile);
-        return false;
-    }
-    return true;
-}
-
 int main(int argc, char **argv) {
     self = argv[0];
 
@@ -52,7 +43,7 @@ int main(int argc, char **argv) {
     char op = '\0';
     bool lenient = false;
 
-    char c;
+    int c;
     while ((c = getopt(argc, argv, "edci:s:o:k:l")) != -1) {
         switch (c) {
             case 'e':
@@ -86,7 +77,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    nfc3d_amiibo_keys amiiboKeys = {0};
+    nfc3d_amiibo_keys_t amiiboKeys = {0};
     if (! LoadAmiikey(amiiboKeys, keyfile))
         return 5;
 

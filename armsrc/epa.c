@@ -1,9 +1,17 @@
 //-----------------------------------------------------------------------------
-// Frederik Möllers - August 2012
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Routines to support the German electronic "Personalausweis" (ID card)
 // Note that the functions which do not implement USB commands do NOT initialize
@@ -22,10 +30,30 @@
 #include "commonutil.h"
 #include "ticks.h"
 
+#ifdef WITH_ISO14443a
 // Protocol and Parameter Selection Request for ISO 14443 type A cards
 // use regular (1x) speed in both directions
 // CRC is already included
 static const uint8_t pps[] = {0xD0, 0x11, 0x00, 0x52, 0xA6};
+#endif
+
+// this struct is used by EPA_Parse_CardAccess and contains info about the
+// PACE protocol supported by the chip
+typedef struct {
+    uint8_t oid[10];
+    uint8_t version;
+    uint8_t parameter_id;
+} pace_version_info_t;
+
+// general functions
+static void EPA_Finish(void);
+static size_t EPA_Parse_CardAccess(const uint8_t *data, size_t length, pace_version_info_t *pace_info);
+static int EPA_Read_CardAccess(uint8_t *buffer, size_t max_length);
+static int EPA_Setup(void);
+
+// PACE related functions
+static int EPA_PACE_MSE_Set_AT(const pace_version_info_t pace_version_info, uint8_t password);
+static int EPA_PACE_Get_Nonce(uint8_t requested_length, uint8_t *nonce);
 
 // APDUs for communication with German Identification Card
 
@@ -113,24 +141,37 @@ static char iso_type = 0;
 //-----------------------------------------------------------------------------
 // Wrapper for sending APDUs to type A and B cards
 //-----------------------------------------------------------------------------
-static int EPA_APDU(uint8_t *apdu, size_t length, uint8_t *response) {
+static int EPA_APDU(uint8_t *apdu, size_t length, uint8_t *response, uint16_t respmaxlen) {
     switch (iso_type) {
         case 'a':
+#ifdef WITH_ISO14443a
             return iso14_apdu(apdu, (uint16_t) length, false, response, NULL);
-            break;
+#else
+            (void) apdu;
+            (void) length;
+            (void) response;
+            (void) respmaxlen;
+            return PM3_ENOTIMPL;
+#endif
         case 'b':
-            return iso14443b_apdu(apdu, length, response);
-            break;
+#ifdef WITH_ISO14443b
+            return iso14443b_apdu(apdu, length, false, response, respmaxlen, NULL, NULL);
+#else
+            (void) apdu;
+            (void) length;
+            (void) response;
+            (void) respmaxlen;
+            return PM3_ENOTIMPL;
+#endif
         default:
             return 0;
-            break;
     }
 }
 
 //-----------------------------------------------------------------------------
 // Closes the communication channel and turns off the field
 //-----------------------------------------------------------------------------
-void EPA_Finish(void) {
+static void EPA_Finish(void) {
     FpgaWriteConfWord(FPGA_MAJOR_MODE_OFF);
     LEDsoff();
     iso_type = 0;
@@ -149,9 +190,8 @@ void EPA_Finish(void) {
 // TODO: Support elements with long tags (tag is longer than 1 byte)
 // TODO: Support proprietary PACE domain parameters
 //-----------------------------------------------------------------------------
-size_t EPA_Parse_CardAccess(uint8_t *data,
-                            size_t length,
-                            pace_version_info_t *pace_info) {
+static size_t EPA_Parse_CardAccess(const uint8_t *data, size_t length, pace_version_info_t *pace_info) {
+
     size_t index = 0;
 
     while (index <= length - 2) {
@@ -165,19 +205,22 @@ size_t EPA_Parse_CardAccess(uint8_t *data,
                 index += (data[index - 1] & 0x7F);
             }
         }
+
         // OID
         else if (data[index] == 0x06) {
             // is this a PACE OID?
             if (data[index + 1] == 0x0A // length matches
-                    && memcmp(data + index + 2,
-                              oid_pace_start,
-                              sizeof(oid_pace_start)) == 0 // content matches
+                    && memcmp(data + index + 2, oid_pace_start, sizeof(oid_pace_start)) == 0 // content matches
                     && pace_info != NULL) {
+
                 // first, clear the pace_info struct
                 memset(pace_info, 0, sizeof(pace_version_info_t));
+
                 memcpy(pace_info->oid, data + index + 2, sizeof(pace_info->oid));
+
                 // a PACE OID is followed by the version
                 index += data[index + 1] + 2;
+
                 if (data[index] == 02 && data[index + 1] == 01) {
                     pace_info->version = data[index + 2];
                     index += 3;
@@ -189,6 +232,7 @@ size_t EPA_Parse_CardAccess(uint8_t *data,
                     pace_info->parameter_id = data[index + 2];
                     index += 3;
                 }
+
             } else {
                 // skip this OID
                 index += 2 + data[index + 1];
@@ -217,17 +261,19 @@ size_t EPA_Parse_CardAccess(uint8_t *data,
 // Returns -1 on failure or the length of the data on success
 // TODO: for the moment this sends only 1 APDU regardless of the requested length
 //-----------------------------------------------------------------------------
-int EPA_Read_CardAccess(uint8_t *buffer, size_t max_length) {
+static int EPA_Read_CardAccess(uint8_t *buffer, size_t max_length) {
     // the response APDU of the card
     // since the card doesn't always care for the expected length we send it,
     // we reserve 262 bytes here just to be safe (256-byte APDU + SW + ISO frame)
     uint8_t response_apdu[262];
-    int rapdu_length = 0;
 
     // select the file EF.CardAccess
-    rapdu_length = EPA_APDU((uint8_t *)apdu_select_binary_cardaccess,
-                            sizeof(apdu_select_binary_cardaccess),
-                            response_apdu);
+    int rapdu_length = EPA_APDU((uint8_t *)apdu_select_binary_cardaccess,
+                                sizeof(apdu_select_binary_cardaccess),
+                                response_apdu,
+                                sizeof(response_apdu)
+                               );
+
     if (rapdu_length < 6
             || response_apdu[rapdu_length - 4] != 0x90
             || response_apdu[rapdu_length - 3] != 0x00) {
@@ -238,7 +284,10 @@ int EPA_Read_CardAccess(uint8_t *buffer, size_t max_length) {
     // read the file
     rapdu_length = EPA_APDU((uint8_t *)apdu_read_binary,
                             sizeof(apdu_read_binary),
-                            response_apdu);
+                            response_apdu,
+                            sizeof(response_apdu)
+                           );
+
     if (rapdu_length <= 6
             || response_apdu[rapdu_length - 4] != 0x90
             || response_apdu[rapdu_length - 3] != 0x00) {
@@ -248,28 +297,28 @@ int EPA_Read_CardAccess(uint8_t *buffer, size_t max_length) {
 
     // copy the content into the buffer
     // length of data available: apdu_length - 4 (ISO frame) - 2 (SW)
-    size_t to_copy = rapdu_length - 6;
-    to_copy = to_copy < max_length ? to_copy : max_length;
-    memcpy(buffer, response_apdu + 2, to_copy);
-    return to_copy;
+    size_t len = rapdu_length - 6;
+    len = len < max_length ? len : max_length;
+    memcpy(buffer, response_apdu + 2, len);
+    return len;
 }
 
 //-----------------------------------------------------------------------------
 // Abort helper function for EPA_PACE_Collect_Nonce
 // sets relevant data in ack, sends the response
 //-----------------------------------------------------------------------------
-static void EPA_PACE_Collect_Nonce_Abort(uint8_t step, int func_return) {
+static void EPA_PACE_Collect_Nonce_Abort(uint32_t cmd, uint8_t step, int func_return) {
     // power down the field
     EPA_Finish();
 
     // send the USB packet
-    reply_mix(CMD_ACK, step, func_return, 0, 0, 0);
+    reply_mix(cmd, step, func_return, 0, 0, 0);
 }
 
 //-----------------------------------------------------------------------------
 // Acquire one encrypted PACE nonce
 //-----------------------------------------------------------------------------
-void EPA_PACE_Collect_Nonce(PacketCommandNG *c) {
+void EPA_PACE_Collect_Nonce(const PacketCommandNG *c) {
     /*
      * ack layout:
      *   arg:
@@ -283,28 +332,28 @@ void EPA_PACE_Collect_Nonce(PacketCommandNG *c) {
     // set up communication
     int func_return = EPA_Setup();
     if (func_return != 0) {
-        EPA_PACE_Collect_Nonce_Abort(1, func_return);
+        EPA_PACE_Collect_Nonce_Abort(CMD_HF_EPA_COLLECT_NONCE, 1, func_return);
         return;
     }
 
     // read the CardAccess file
     // this array will hold the CardAccess file
     uint8_t card_access[256] = {0};
-    int card_access_length = EPA_Read_CardAccess(card_access, 256);
+    int cardlen = EPA_Read_CardAccess(card_access, 256);
     // the response has to be at least this big to hold the OID
-    if (card_access_length < 18) {
-        EPA_PACE_Collect_Nonce_Abort(2, card_access_length);
+    if (cardlen < 18) {
+        EPA_PACE_Collect_Nonce_Abort(CMD_HF_EPA_COLLECT_NONCE, 2, cardlen);
         return;
     }
 
     // this will hold the PACE info of the card
     pace_version_info_t pace_version_info;
+
     // search for the PACE OID
-    func_return = EPA_Parse_CardAccess(card_access,
-                                       card_access_length,
-                                       &pace_version_info);
+    func_return = EPA_Parse_CardAccess(card_access, cardlen, &pace_version_info);
+
     if (func_return != 0 || pace_version_info.version == 0) {
-        EPA_PACE_Collect_Nonce_Abort(3, func_return);
+        EPA_PACE_Collect_Nonce_Abort(CMD_HF_EPA_COLLECT_NONCE, 3, func_return);
         return;
     }
 
@@ -313,25 +362,29 @@ void EPA_PACE_Collect_Nonce(PacketCommandNG *c) {
     func_return = EPA_PACE_MSE_Set_AT(pace_version_info, 2);
     // check if the command succeeded
     if (func_return != 0) {
-        EPA_PACE_Collect_Nonce_Abort(4, func_return);
+        EPA_PACE_Collect_Nonce_Abort(CMD_HF_EPA_COLLECT_NONCE, 4, func_return);
         return;
     }
 
     // now get the nonce
     uint8_t nonce[256] = {0};
-    uint8_t requested_size = (uint8_t)c->oldarg[0];
-    func_return = EPA_PACE_Get_Nonce(requested_size, nonce);
+
+    struct p {
+        uint32_t m;
+    } PACKED;
+    const struct p *packet = (const struct p *)c->data.asBytes;
+
+    func_return = EPA_PACE_Get_Nonce(packet->m, nonce);
     // check if the command succeeded
     if (func_return < 0) {
-        EPA_PACE_Collect_Nonce_Abort(5, func_return);
+        EPA_PACE_Collect_Nonce_Abort(CMD_HF_EPA_COLLECT_NONCE, 5, func_return);
         return;
     }
 
-    // all done, return
     EPA_Finish();
 
     // save received information
-    reply_mix(CMD_ACK, 0, func_return, 0, nonce, func_return);
+    reply_mix(CMD_HF_EPA_COLLECT_NONCE, 0, func_return, 0, nonce, func_return);
 }
 
 //-----------------------------------------------------------------------------
@@ -342,22 +395,19 @@ void EPA_PACE_Collect_Nonce(PacketCommandNG *c) {
 // Returns the actual size of the nonce on success or a less-than-zero error
 // code on failure.
 //-----------------------------------------------------------------------------
-int EPA_PACE_Get_Nonce(uint8_t requested_length, uint8_t *nonce) {
+static int EPA_PACE_Get_Nonce(uint8_t requested_length, uint8_t *nonce) {
+
     // build the APDU
     uint8_t apdu[sizeof(apdu_general_authenticate_pace_get_nonce) + 1];
+
     // copy the constant part
-    memcpy(apdu,
-           apdu_general_authenticate_pace_get_nonce,
-           sizeof(apdu_general_authenticate_pace_get_nonce));
+    memcpy(apdu, apdu_general_authenticate_pace_get_nonce, sizeof(apdu_general_authenticate_pace_get_nonce));
+
     // append Le (requested length + 2 due to tag/length taking 2 bytes) in RAPDU
     apdu[sizeof(apdu_general_authenticate_pace_get_nonce)] = requested_length + 4;
 
-    // send it
     uint8_t response_apdu[262];
-    int send_return = EPA_APDU(apdu,
-                               sizeof(apdu),
-                               response_apdu);
-    // check if the command succeeded
+    int send_return = EPA_APDU(apdu, sizeof(apdu), response_apdu, sizeof(response_apdu));
     if (send_return < 6
             || response_apdu[send_return - 4] != 0x90
             || response_apdu[send_return - 3] != 0x00) {
@@ -384,29 +434,34 @@ int EPA_PACE_Get_Nonce(uint8_t requested_length, uint8_t *nonce) {
 // Initializes the PACE protocol by performing the "MSE: Set AT" step
 // Returns 0 on success or a non-zero error code on failure
 //-----------------------------------------------------------------------------
-int EPA_PACE_MSE_Set_AT(pace_version_info_t pace_version_info, uint8_t password) {
+static int EPA_PACE_MSE_Set_AT(const pace_version_info_t pace_version_info, uint8_t password) {
     // create the MSE: Set AT APDU
     uint8_t apdu[23];
+
     // the minimum length (will be increased as more data is added)
     size_t apdu_length = 20;
+
     // copy the constant part
-    memcpy(apdu,
-           apdu_mse_set_at_start,
-           sizeof(apdu_mse_set_at_start));
+    memcpy(apdu, apdu_mse_set_at_start, sizeof(apdu_mse_set_at_start));
+
     // type: OID
     apdu[5] = 0x80;
+
     // length of the OID
     apdu[6] = sizeof(pace_version_info.oid);
+
     // copy the OID
-    memcpy(apdu + 7,
-           pace_version_info.oid,
-           sizeof(pace_version_info.oid));
+    memcpy(apdu + 7, pace_version_info.oid, sizeof(pace_version_info.oid));
+
     // type: password
     apdu[17] = 0x83;
+
     // length: 1
     apdu[18] = 1;
+
     // password
     apdu[19] = password;
+
     // if standardized domain parameters are used, copy the ID
     if (pace_version_info.parameter_id != 0) {
         apdu_length += 3;
@@ -417,17 +472,23 @@ int EPA_PACE_MSE_Set_AT(pace_version_info_t pace_version_info, uint8_t password)
         // copy the parameter ID
         apdu[22] = pace_version_info.parameter_id;
     }
+
     // now set Lc to the actual length
     apdu[4] = apdu_length - 5;
+
     // send it
     uint8_t response_apdu[6];
-    int send_return = EPA_APDU(apdu,
-                               apdu_length,
-                               response_apdu);
+    int send_return = EPA_APDU(apdu, apdu_length, response_apdu, sizeof(response_apdu));
+
+    Dbprintf("send ret %d bytes", send_return);
+
+//    Dbhexdump(send_return, response_apdu, false);
+
     // check if the command succeeded
-    if (send_return != 6
-            || response_apdu[send_return - 4] != 0x90
-            || response_apdu[send_return - 3] != 0x00) {
+    if (send_return != 6)
+//            && response_apdu[send_return - 4] != 0x90
+//            || response_apdu[send_return - 3] != 0x00)
+    {
         return 1;
     }
     return 0;
@@ -436,7 +497,8 @@ int EPA_PACE_MSE_Set_AT(pace_version_info_t pace_version_info, uint8_t password)
 //-----------------------------------------------------------------------------
 // Perform the PACE protocol by replaying given APDUs
 //-----------------------------------------------------------------------------
-void EPA_PACE_Replay(PacketCommandNG *c) {
+void EPA_PACE_Replay(const PacketCommandNG *c) {
+
     uint32_t timings[ARRAYLEN(apdu_lengths_replay)] = {0};
 
     // if an APDU has been passed, save it
@@ -480,7 +542,9 @@ void EPA_PACE_Replay(PacketCommandNG *c) {
         StartCountUS();
         func_return = EPA_APDU(apdus_replay[i].data,
                                apdu_lengths_replay[i],
-                               response_apdu);
+                               response_apdu,
+                               sizeof(response_apdu)
+                              );
         timings[i] = GetCountUS();
         // every step but the last one should succeed
         if (i < ARRAYLEN(apdu_lengths_replay) - 1
@@ -501,41 +565,89 @@ void EPA_PACE_Replay(PacketCommandNG *c) {
 // Set up a communication channel (Card Select, PPS)
 // Returns 0 on success or a non-zero error code on failure
 //-----------------------------------------------------------------------------
-int EPA_Setup(void) {
+static int EPA_Setup(void) {
 
-    // first, look for type A cards
-    // power up the field
-    iso14443a_setup(FPGA_HF_ISO14443A_READER_MOD);
-    iso14a_card_select_t card_a_info;
-    int return_code = iso14443a_select_card(NULL, &card_a_info, NULL, true, 0, false);
+#ifdef WITH_ISO14443a
+    {
+        // first, look for type A cards
+        FpgaWriteConfWord(FPGA_MAJOR_MODE_OFF);
+        // power up the field
+        iso14443a_setup(FPGA_HF_ISO14443A_READER_MOD);
+        iso14a_card_select_t card_a_info;
+        int return_code = iso14443a_select_card(NULL, &card_a_info, NULL, true, 0, false);
 
-    if (return_code == 1) {
-        uint8_t pps_response[3];
-        uint8_t pps_response_par[1];
-        // send the PPS request
-        ReaderTransmit((uint8_t *)pps, sizeof(pps), NULL);
-        return_code = ReaderReceive(pps_response, pps_response_par);
-        if (return_code != 3 || pps_response[0] != 0xD0) {
-            return return_code == 0 ? 2 : return_code;
+        if (return_code == 1) {
+            uint8_t pps_response[3];
+            uint8_t pps_response_par[1];
+            // send the PPS request
+            ReaderTransmit((uint8_t *)pps, sizeof(pps), NULL);
+            return_code = ReaderReceive(pps_response, pps_response_par);
+            if (return_code != 3 || pps_response[0] != 0xD0) {
+                return return_code == 0 ? 2 : return_code;
+            }
+            Dbprintf("ISO 14443 Type A");
+            iso_type = 'a';
+            return 0;
         }
-        Dbprintf("ISO 14443 Type A");
-        iso_type = 'a';
-        return 0;
     }
+#endif
+#ifdef WITH_ISO14443b
+    {
+        // if we're here, there is no type A card, so we look for type B
+        FpgaWriteConfWord(FPGA_MAJOR_MODE_OFF);
+        // power up the field
+        iso14443b_setup();
+        iso14b_card_select_t card_b_info;
+        int return_code = iso14443b_select_card(&card_b_info);
 
-    FpgaWriteConfWord(FPGA_MAJOR_MODE_OFF);
-
-    // if we're here, there is no type A card, so we look for type B
-    // power up the field
-    iso14443b_setup();
-    iso14b_card_select_t card_b_info;
-    return_code = iso14443b_select_card(&card_b_info);
-
-    if (return_code == 0) {
-        Dbprintf("ISO 14443 Type B");
-        iso_type = 'b';
-        return 0;
+        if (return_code == 0) {
+            Dbprintf("ISO 14443 Type B");
+            iso_type = 'b';
+            return 0;
+        }
     }
-    Dbprintf("No card found.");
+#endif
+    Dbprintf("No card found");
     return 1;
+}
+
+void EPA_PACE_Simulate(const PacketCommandNG *c) {
+
+    //---------Initializing---------
+
+    // Get password from arguments
+    unsigned char pwd[6];
+    memcpy(pwd, c->data.asBytes, 6);
+
+    // Set up communication with the card
+    int res = EPA_Setup();
+    if (res != 0) {
+        EPA_PACE_Collect_Nonce_Abort(CMD_HF_EPA_PACE_SIMULATE, 1, res);
+        return;
+    }
+
+    // Read EF.CardAccess
+    uint8_t card_access[210] = {0};
+    int card_access_length = EPA_Read_CardAccess(card_access, 210);
+
+    // The response has to be at least this big to hold the OID
+    if (card_access_length < 18) {
+        EPA_PACE_Collect_Nonce_Abort(CMD_HF_EPA_PACE_SIMULATE, 2, card_access_length);
+        return;
+    }
+
+    // PACEInfo of the card
+    pace_version_info_t pace_version_info;
+
+    // Search for the PACE OID
+    res = EPA_Parse_CardAccess(card_access, card_access_length, &pace_version_info);
+
+    if (res != 0 || pace_version_info.version == 0) {
+        EPA_PACE_Collect_Nonce_Abort(CMD_HF_EPA_PACE_SIMULATE, 3, res);
+        return;
+    }
+
+    Dbprintf("Standardized Domain Parameter: %i", pace_version_info.parameter_id);
+    DbpString("");
+    DbpString("finished");
 }

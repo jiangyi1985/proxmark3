@@ -1,7 +1,17 @@
 //-----------------------------------------------------------------------------
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // LF ADC read/write implementation
 //-----------------------------------------------------------------------------
@@ -52,9 +62,12 @@ bool lf_test_periods(size_t expected, size_t count) {
 //////////////////////////////////////////////////////////////////////////////
 // Low frequency (LF) adc passthrough functionality
 //////////////////////////////////////////////////////////////////////////////
-static uint8_t previous_adc_val = 0;
+static uint8_t previous_adc_val = 0; //0xFF;
 static uint8_t adc_avg = 0;
 
+uint8_t get_adc_avg(void) {
+    return adc_avg;
+}
 void lf_sample_mean(void) {
     uint8_t periods = 0;
     uint32_t adc_sum = 0;
@@ -66,27 +79,54 @@ void lf_sample_mean(void) {
     }
     // division by 32
     adc_avg = adc_sum >> 5;
+    previous_adc_val = adc_avg;
 
-    if (DBGLEVEL >= DBG_EXTENDED)
+    if (g_dbglevel >= DBG_EXTENDED) {
         Dbprintf("LF ADC average %u", adc_avg);
+    }
 }
 
 static size_t lf_count_edge_periods_ex(size_t max, bool wait, bool detect_gap) {
+
+#define LIMIT_DEV  20
+
+    // timeout limit to 100 000 w/o
+    uint32_t timeout = 100000;
     size_t periods = 0;
-    uint8_t avg_peak = adc_avg + 3, avg_through = adc_avg - 3;
+    uint8_t avg_peak = adc_avg + LIMIT_DEV;
+    uint8_t avg_through = adc_avg - LIMIT_DEV;
 
     while (BUTTON_PRESS() == false) {
+        WDT_HIT();
+
+        timeout--;
+        if (timeout == 0) {
+            return 0;
+        }
+
+        if (AT91C_BASE_SSC->SSC_SR & (AT91C_SSC_TXRDY)) {
+            AT91C_BASE_SSC->SSC_THR = 0x00;
+            continue;
+        }
+
         if (AT91C_BASE_SSC->SSC_SR & (AT91C_SSC_RXRDY)) {
-            volatile uint8_t adc_val = AT91C_BASE_SSC->SSC_RHR;
+
             periods++;
 
-            if (g_logging) logSampleSimple(adc_val);
+            // reset timeout
+            timeout = 100000;
+
+            volatile uint8_t adc_val = AT91C_BASE_SSC->SSC_RHR;
+
+            if (g_logging) {
+                logSampleSimple(adc_val);
+            }
 
             // Only test field changes if state of adc values matter
             if (wait == false) {
                 // Test if we are locating a field modulation (100% ASK = complete field drop)
                 if (detect_gap) {
-                    // Only return when the field completely dissapeared
+                    // Only return when the field completely disappeared
                     if (adc_val == 0) {
                         return periods;
                     }
@@ -94,25 +134,35 @@ static size_t lf_count_edge_periods_ex(size_t max, bool wait, bool detect_gap) {
                 } else {
                     // Trigger on a modulation swap by observing an edge change
                     if (rising_edge) {
+
                         if ((previous_adc_val > avg_peak) && (adc_val <= previous_adc_val)) {
                             rising_edge = false;
                             return periods;
                         }
+
                     } else {
+
                         if ((previous_adc_val < avg_through) && (adc_val >= previous_adc_val)) {
                             rising_edge = true;
                             return periods;
                         }
+
                     }
                 }
             }
+
             previous_adc_val = adc_val;
 
-            if (periods >= max) return 0;
+            if (periods >= max) {
+                return 0;
+            }
         }
     }
 
-    if (g_logging) logSampleSimple(0xFF);
+    if (g_logging) {
+        logSampleSimple(0xFF);
+    }
+
     return 0;
 }
 
@@ -148,11 +198,11 @@ bool lf_get_reader_modulation(void) {
 }
 
 void lf_wait_periods(size_t periods) {
-                             //       wait  detect gap
+    //       wait  detect gap
     lf_count_edge_periods_ex(periods, true, false);
 }
 
-void lf_init(bool reader, bool simulate) {
+void lf_init(bool reader, bool simulate, bool ledcontrol) {
 
     StopTicks();
 
@@ -165,30 +215,29 @@ void lf_init(bool reader, bool simulate) {
     sc->averaging = 0;
 
     FpgaSendCommand(FPGA_CMD_SET_DIVISOR, sc->divisor);
+
     if (reader) {
         FpgaWriteConfWord(FPGA_MAJOR_MODE_LF_ADC | FPGA_LF_ADC_READER_FIELD);
     } else {
-        if (simulate)
-//            FpgaWriteConfWord(FPGA_MAJOR_MODE_LF_EDGE_DETECT);
-            FpgaWriteConfWord(FPGA_MAJOR_MODE_LF_ADC);
-        else
-            // Sniff
-            FpgaWriteConfWord(FPGA_MAJOR_MODE_LF_EDGE_DETECT  | FPGA_LF_EDGE_DETECT_TOGGLE_MODE);
 
+        if (simulate) {
+            FpgaWriteConfWord(FPGA_MAJOR_MODE_LF_ADC);
+        } else {
+            // Sniff
+            FpgaWriteConfWord(FPGA_MAJOR_MODE_LF_ADC);
+            // FpgaWriteConfWord(FPGA_MAJOR_MODE_LF_EDGE_DETECT  | FPGA_LF_EDGE_DETECT_TOGGLE_MODE);
+        }
     }
 
     // Connect the A/D to the peak-detected low-frequency path.
     SetAdcMuxFor(GPIO_MUXSEL_LOPKD);
 
     // Now set up the SSC to get the ADC samples that are now streaming at us.
-    FpgaSetupSsc();
+    FpgaSetupSsc(FPGA_MAJOR_MODE_LF_READER);
 
     // When in reader mode, give the field a bit of time to settle.
     // 313T0 = 313 * 8us = 2504us = 2.5ms  Hitag2 tags needs to be fully powered.
-    if (reader) {
-        // 10 ms
-        SpinDelay(10);
-    }
+    SpinDelay(10);
 
     // Steal this pin from the SSP (SPI communication channel with fpga) and use it to control the modulation
     AT91C_BASE_PIOA->PIO_PER = GPIO_SSC_DOUT;
@@ -206,22 +255,27 @@ void lf_init(bool reader, bool simulate) {
     AT91C_BASE_TC1->TC_CMR = AT91C_TC_CLKS_TIMER_DIV4_CLOCK;
 
     // Clear all leds
-    LEDsoff();
+    if (ledcontrol) LEDsoff();
 
     // Reset and enable timers
     AT91C_BASE_TC0->TC_CCR = AT91C_TC_CLKEN | AT91C_TC_SWTRG;
     AT91C_BASE_TC1->TC_CCR = AT91C_TC_CLKEN | AT91C_TC_SWTRG;
 
+    // Assert a sync signal. This sets all timers to 0 on next active clock edge
+    AT91C_BASE_TCB->TCB_BCR = 1;
+
     // Prepare data trace
     uint32_t bufsize = 10000;
 
     // use malloc
-    if (g_logging) initSampleBufferEx(&bufsize, true);
+    if (g_logging) {
+        initSampleBufferEx(&bufsize, true);
+    }
 
     lf_sample_mean();
 }
 
-void lf_finalize(void) {
+void lf_finalize(bool ledcontrol) {
     // Disable timers
     AT91C_BASE_TC0->TC_CCR = AT91C_TC_CLKDIS;
     AT91C_BASE_TC1->TC_CCR = AT91C_TC_CLKDIS;
@@ -232,46 +286,46 @@ void lf_finalize(void) {
 
     FpgaWriteConfWord(FPGA_MAJOR_MODE_OFF);
 
-    LEDsoff();
+    if (ledcontrol) LEDsoff();
 
     StartTicks();
 }
 
 size_t lf_detect_field_drop(size_t max) {
-/*
-    size_t periods = 0;
-//    int16_t checked = 0;
+    /*
+        size_t periods = 0;
+    //    int16_t checked = 0;
 
-    while (BUTTON_PRESS() == false) {
+        while (BUTTON_PRESS() == false) {
 
-                // // only every 1000th times, in order to save time when collecting samples.
-                // if (checked == 4000) {
-                    // if (data_available()) {
-                        // checked = -1;
-                        // break;
-                    // } else {
-                        // checked = 0;
+                    // // only every 1000th times, in order to save time when collecting samples.
+                    // if (checked == 4000) {
+                        // if (data_available()) {
+                            // checked = -1;
+                            // break;
+                        // } else {
+                            // checked = 0;
+                        // }
                     // }
-                // }
-                // ++checked;
+                    // ++checked;
 
-        WDT_HIT();
+            WDT_HIT();
 
-        if (AT91C_BASE_SSC->SSC_SR & (AT91C_SSC_RXRDY)) {
-            periods++;
-            volatile uint8_t adc_val = AT91C_BASE_SSC->SSC_RHR;
+            if (AT91C_BASE_SSC->SSC_SR & (AT91C_SSC_RXRDY)) {
+                periods++;
+                volatile uint8_t adc_val = AT91C_BASE_SSC->SSC_RHR;
 
-            if (g_logging) logSampleSimple(adc_val);
+                if (g_logging) logSampleSimple(adc_val);
 
-            if (adc_val == 0) {
-                rising_edge = false;
-                return periods;
+                if (adc_val == 0) {
+                    rising_edge = false;
+                    return periods;
+                }
+
+                if (periods == max) return 0;
             }
-
-            if (periods == max) return 0;
         }
-    }
-*/
+    */
     return 0;
 }
 
@@ -292,9 +346,9 @@ static void lf_manchester_send_bit(uint8_t bit) {
 }
 
 // simulation
-bool lf_manchester_send_bytes(const uint8_t *frame, size_t frame_len) {
+bool lf_manchester_send_bytes(const uint8_t *frame, size_t frame_len, bool ledcontrol) {
 
-    LED_B_ON();
+    if (ledcontrol) LED_B_ON();
 
     lf_manchester_send_bit(1);
     lf_manchester_send_bit(1);
@@ -307,6 +361,6 @@ bool lf_manchester_send_bytes(const uint8_t *frame, size_t frame_len) {
         lf_manchester_send_bit((frame[i / 8] >> (7 - (i % 8))) & 1);
     }
 
-    LED_B_OFF();
+    if (ledcontrol) LED_B_OFF();
     return true;
 }

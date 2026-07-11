@@ -1,10 +1,17 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2013 m h swende <martin at swende.se>
-// Modified 2015,2016, iceman
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Some lua scripting glue to proxmark core.
 //-----------------------------------------------------------------------------
@@ -27,7 +34,7 @@
 #include "cmdhfmfhard.h"
 #include "cmdhfmfu.h"
 #include "cmdlft55xx.h"   // read t55xx etc
-#include "mifare/ndef.h"  // ndef parsing
+#include "nfc/ndef.h"     // ndef parsing
 #include "commonutil.h"
 #include "ui.h"
 
@@ -36,6 +43,10 @@
 #include "fileutils.h"    // searchfile
 #include "cmdlf.h"        // lf_config
 #include "generator.h"
+#include "cmdlfem4x05.h"  // read 4305
+#include "cmdlfem4x50.h"  // read 4350
+#include "em4x50.h"       // 4x50 structs
+#include "iso7816/iso7816core.h"  // ISODEPSTATE
 
 static int returnToLuaWithError(lua_State *L, const char *fmt, ...) {
     char buffer[200];
@@ -55,7 +66,7 @@ static int l_clearCommandBuffer(lua_State *L) {
 }
 
 /**
- * Enable / Disable fast push mode for lua scripts like mfckeys
+ * Enable / Disable fast push mode for lua scripts like hf_mf_keycheck
  * The following params expected:
  *
  *@brief l_fast_push_mode
@@ -68,7 +79,7 @@ static int l_fast_push_mode(lua_State *L) {
 
     bool enable = lua_toboolean(L, 1);
 
-    conn.block_after_ACK = enable;
+    g_conn.block_after_ACK = enable;
 
     // Disable fast mode and send a dummy command to make it effective
     if (enable == false) {
@@ -81,56 +92,6 @@ static int l_fast_push_mode(lua_State *L) {
 
     //Push the retval on the stack
     lua_pushboolean(L, enable);
-    return 1;
-}
-
-/**
- * The following params expected:
- * @brief l_SendCommandOLD
- * @param L - a lua string with the following five params.
- * @param cmd  must be hexstring, max u64
- * @param arg0  must be hexstring, max u64
- * @param arg1  must be hexstring, max u64
- * @param arg2  must be hexstring, max u64
- * @param data  must be hexstring less than 1024 chars(512bytes)
- * @return
- */
-static int l_SendCommandOLD(lua_State *L) {
-//  SendCommandMIX(CMD_HF_SNIFF, skippairs, skiptriggers, 0, NULL, 0);
-// (uint64_t cmd, uint64_t arg0, uint64_t arg1, uint64_t arg2, void *data, size_t len)
-
-    uint64_t cmd, arg0, arg1, arg2;
-    uint8_t data[PM3_CMD_DATA_SIZE] = {0};
-    size_t len = 0, size;
-
-    //Check number of arguments
-    int n = lua_gettop(L);
-    if (n != 5)  {
-        return returnToLuaWithError(L, "You need to supply five parameters");
-    }
-
-    // parse input
-    cmd = luaL_checknumber(L, 1);
-    arg0 = luaL_checknumber(L, 2);
-    arg1 = luaL_checknumber(L, 3);
-    arg2 = luaL_checknumber(L, 4);
-
-    // data
-    const char *p_data = luaL_checklstring(L, 5, &size);
-    if (size) {
-        if (size > 1024)
-            size = 1024;
-
-        uint32_t tmp;
-        for (int i = 0; i < size; i += 2) {
-            sscanf(&p_data[i], "%02x", &tmp);
-            data[i >> 1] = tmp & 0xFF;
-            len++;
-        }
-    }
-
-    SendCommandOLD(cmd, arg0, arg1, arg2, data, len);
-    lua_pushboolean(L, true);
     return 1;
 }
 
@@ -176,6 +137,7 @@ static int l_SendCommandMIX(lua_State *L) {
         }
     }
 
+    clearCommandBuffer();
     SendCommandMIX(cmd, arg0, arg1, arg2, data, len);
     lua_pushboolean(L, true);
     return 1;
@@ -215,6 +177,7 @@ static int l_SendCommandNG(lua_State *L) {
         }
     }
 
+    clearCommandBuffer();
     SendCommandNG(cmd, data, len);
     lua_pushboolean(L, true);
     return 1;
@@ -336,12 +299,12 @@ static int l_GetFromFlashMemSpiffs(lua_State *L) {
         return returnToLuaWithError(L, "Filename missing or invalid");
 
     // get size from spiffs itself !
-    SendCommandMIX(CMD_SPIFFS_STAT, 0, 0, 0, (uint8_t *)destfilename, 32);
+    SendCommandNG(CMD_SPIFFS_STAT, (uint8_t *)destfilename, 32);
     PacketResponseNG resp;
-    if (!WaitForResponseTimeout(CMD_ACK, &resp, 2000))
+    if (!WaitForResponseTimeout(CMD_SPIFFS_STAT, &resp, 2000))
         return returnToLuaWithError(L, "No response from the device");
 
-    len = resp.oldarg[0];
+    len = resp.data.asDwords[0];
 
     if (len == 0)
         return returnToLuaWithError(L, "Filename invalid or empty");
@@ -387,8 +350,9 @@ static int l_WaitForResponseTimeout(lua_State *L) {
         ms_timeout = luaL_checkunsigned(L, 2);
 
     PacketResponseNG resp;
-    if (WaitForResponseTimeout(cmd, &resp, ms_timeout) == false)
+    if (WaitForResponseTimeout(cmd, &resp, ms_timeout) == false) {
         return returnToLuaWithError(L, "No response from the device");
+    }
 
     char foo[sizeof(PacketResponseNG)];
     n = 0;
@@ -426,7 +390,6 @@ static int l_WaitForResponseTimeout(lua_State *L) {
 
     //Push it as a string
     lua_pushlstring(L, (const char *)&foo, sizeof(foo));
-
     return 1;
 }
 
@@ -474,14 +437,14 @@ static int l_mfDarkside(lua_State *L) {
 static int l_foobar(lua_State *L) {
     //Check number of arguments
     int n = lua_gettop(L);
-    printf("foobar called with %d arguments", n);
+    PrintAndLogEx(INFO, "foobar called with %d arguments", n);
     lua_settop(L, 0);
-    printf("Arguments discarded, stack now contains %d elements", lua_gettop(L));
+    PrintAndLogEx(INFO, "Arguments discarded, stack now contains %d elements", lua_gettop(L));
 
     // todo: this is not used, where was it intended for?
     // PacketCommandOLD response =  {CMD_HF_MIFARE_READBL, {1337, 1338, 1339}, {{0}}};
 
-    printf("Now returning a uint64_t as a string");
+    PrintAndLogEx(INFO, "Now returning a uint64_t as a string");
     uint64_t x = 0xDEADC0DE;
     uint8_t destination[8];
     num_to_bytes(x, sizeof(x), destination);
@@ -677,12 +640,28 @@ static int l_aes128encrypt_ecb(lua_State *L) {
 
 static int l_crc8legic(lua_State *L) {
     size_t size;
-    const char *p_str = luaL_checklstring(L, 1, &size);
-
-    uint16_t retval = CRC8Legic((uint8_t *) p_str, size);
+    const char *p_hexstr = luaL_checklstring(L, 1, &size);
+    uint16_t retval = CRC8Legic((uint8_t *)p_hexstr, size);
     lua_pushunsigned(L, retval);
     return 1;
 }
+
+static int l_crc16legic(lua_State *L) {
+    size_t hexsize, uidsize;
+
+    // data as hex string
+    const char *p_hexstr = luaL_checklstring(L, 1, &hexsize);
+
+    // calc uid crc based on uid hex
+    const char *p_uid = luaL_checklstring(L, 2, &uidsize);
+    uint16_t uidcrc = CRC8Legic((uint8_t *)p_uid, uidsize);
+
+    init_table(CRC_LEGIC_16);
+    uint16_t retval = crc16_legic((uint8_t *)p_hexstr, hexsize, uidcrc);
+    lua_pushunsigned(L, retval);
+    return 1;
+}
+
 
 static int l_crc16(lua_State *L) {
     size_t size;
@@ -909,6 +888,39 @@ static int l_detect_prng(lua_State *L) {
     return 1;
 }
 /*
+ * @brief l_keygen_algoB is a function to calculate pwd/pack using UID, by algo B
+ * @param L
+ * @return
+ */
+static int l_keygen_algoB(lua_State *L) {
+    //Check number of arguments
+    int n = lua_gettop(L);
+    if (n != 1)  {
+        return returnToLuaWithError(L, "Only UID");
+    }
+
+    size_t size;
+    uint32_t tmp;
+    const char *p_uid = luaL_checklstring(L, 1, &size);
+    if (size != 14)
+        return returnToLuaWithError(L, "Wrong size of UID, got %d bytes, expected 14", (int) size);
+
+    uint8_t uid[7] = {0, 0, 0, 0, 0, 0, 0};
+
+    for (int i = 0; i < 14; i += 2) {
+        sscanf(&p_uid[i], "%02x", &tmp);
+        uid[i / 2] = tmp & 0xFF;
+    }
+
+    uint32_t pwd = ul_ev1_pwdgenB(uid);
+    uint16_t pack = ul_ev1_packgenB(uid);
+
+    lua_pushunsigned(L, pwd);
+    lua_pushunsigned(L, pack);
+    return 2;
+}
+
+/*
  * @brief l_keygen_algoD is a function to calculate pwd/pack using UID, by algo D
  * @param L
  * @return
@@ -998,7 +1010,7 @@ static int l_T55xx_readblock(lua_State *L) {
                 return returnToLuaWithError(L, "Failed to read config block");
             }
 
-            if (!tryDetectModulation(0, true)) { // Default to prev. behaviour (default dl mode and print config)
+            if (!t55xxTryDetectModulation(0, true)) { // Default to prev. behaviour (default dl mode and print config)
                 PrintAndLogEx(NORMAL, "Safety Check: Could not detect if PWD bit is set in config block. Exits.");
                 return 0;
             } else {
@@ -1046,7 +1058,7 @@ static int l_T55xx_detect(lua_State *L) {
 
             sscanf(p_gb, "%u", &gb);
             useGB = (gb) ? true : false;
-            printf("p_gb size  %zu | %c \n", size, useGB ? 'Y' : 'N');
+            PrintAndLogEx(INFO, "p_gb size  %zu | %c", size, useGB ? 'Y' : 'N');
         }
         case 1: {
             const char *p_pwd = luaL_checklstring(L, 1, &size);
@@ -1074,7 +1086,7 @@ static int l_T55xx_detect(lua_State *L) {
         }
     }
 
-    isok = tryDetectModulation(0, true); // Default to prev. behaviour (default dl mode and print config)
+    isok = t55xxTryDetectModulation(0, true); // Default to prev. behaviour (default dl mode and print config)
     if (isok == false) {
         return returnToLuaWithError(L, "Could not detect modulation automatically. Try setting it manually with \'lf t55xx config\'");
     }
@@ -1084,10 +1096,104 @@ static int l_T55xx_detect(lua_State *L) {
     return 2;
 }
 
+// 4305
+static int l_em4x05_read(lua_State *L) {
+
+    bool use_pwd = false;
+    uint32_t addr, password = 0;
+
+    //Check number of arguments
+    //int n = lua_gettop(L);
+
+    // get addr
+    size_t size = 0;
+    const char *p_addr = luaL_checklstring(L, 1, &size);
+    sscanf(p_addr, "%u", &addr);
+
+    // get password
+    const char *p_pwd = luaL_checkstring(L, 2);
+    if (p_pwd == NULL || strlen(p_pwd) == 0) {
+        use_pwd = false;
+    } else {
+        if (strlen(p_pwd) != 8)
+            return returnToLuaWithError(L, "Wrong size of password, got %zu , expected 8", strlen(p_pwd));
+
+        sscanf(p_pwd, "%08x", &password);
+        use_pwd = true;
+    }
+
+    PrintAndLogEx(DEBUG, "Addr %u", addr);
+    if (use_pwd)
+        PrintAndLogEx(DEBUG, " Pwd %08X", password);
+
+    uint32_t word = 0;
+    int res = em4x05_read_word_ext(addr, password, use_pwd, &word);
+    if (res != PM3_SUCCESS) {
+        return returnToLuaWithError(L, "Failed to read EM4x05 data");
+    }
+
+    lua_pushinteger(L, word);
+    return 1;
+}
+
+// 4350
+static int l_em4x50_read(lua_State *L) {
+
+    // get addr
+    size_t size = 0;
+    const char *p_addr = luaL_checklstring(L, 1, &size);
+    uint32_t addr = 0;
+    sscanf(p_addr, "%u", &addr);
+
+    if (addr > 31)
+        return returnToLuaWithError(L, "Address out-of-range (0..31) got %u", addr);
+
+    // setting up structures
+    em4x50_data_t etd;
+    memset(&etd, 0x00, sizeof(em4x50_data_t));
+    etd.addr_given = true;
+    etd.addresses = addr & 0xFF;
+
+    // get password
+    const char *p_pwd = luaL_checkstring(L, 2);
+    if (p_pwd == NULL || strlen(p_pwd) == 0) {
+        etd.pwd_given = false;
+    } else {
+        if (strlen(p_pwd) != 8)
+            return returnToLuaWithError(L, "Wrong size of password, got %zu , expected 8", strlen(p_pwd));
+
+        uint32_t pwd = 0;
+        sscanf(p_pwd, "%08x", &pwd);
+
+        PrintAndLogEx(DEBUG, " Pwd %08X", pwd);
+
+        etd.password1 = pwd;
+        etd.pwd_given = true;
+    }
+
+    PrintAndLogEx(DEBUG, "Addr %u", etd.addresses & 0xFF);
+    if (etd.pwd_given)
+        PrintAndLogEx(DEBUG, " Pwd %08x", etd.password1);
+
+    em4x50_word_t words[EM4X50_NO_WORDS];
+
+    int res = em4x50_read(&etd, words);
+    if (res != PM3_SUCCESS) {
+        return returnToLuaWithError(L, "Failed to read EM4x50 data");
+    }
+
+    uint32_t word = (
+                        words[etd.addresses & 0xFF].byte[0] << 24 |
+                        words[etd.addresses & 0xFF].byte[1] << 16 |
+                        words[etd.addresses & 0xFF].byte[2] << 8 |
+                        words[etd.addresses & 0xFF].byte[3]
+                    );
+    lua_pushinteger(L, word);
+    return 1;
+}
+
 //
 static int l_ndefparse(lua_State *L) {
-
-    size_t size;
 
     //Check number of arguments
     int n = lua_gettop(L);
@@ -1104,6 +1210,7 @@ static int l_ndefparse(lua_State *L) {
     }
 
     // data
+    size_t size;
     const char *p_data = luaL_checklstring(L, 3, &size);
     if (size) {
         if (size > (datalen << 1))
@@ -1121,6 +1228,19 @@ static int l_ndefparse(lua_State *L) {
     return 1;
 }
 
+static int l_ul_read_uid(lua_State *L) {
+    uint8_t uid[7] = { 0, 0, 0, 0, 0, 0, 0 };
+    int res = ul_read_uid(uid);
+    if (res != PM3_SUCCESS) {
+        return returnToLuaWithError(L, "Failed to read Ultralight/NTAG UID");
+    }
+    char buf[15];
+    memset(buf, 0, sizeof(buf));
+    snprintf(buf, sizeof(buf), "%02X%02X%02X%02X%02X%02X%02X", uid[0], uid[1], uid[2], uid[3], uid[4], uid[5], uid[6]);
+    lua_pushstring(L, buf);
+    return 1;
+}
+
 static int l_remark(lua_State *L) {
     //Check number of arguments
     int n = lua_gettop(L);
@@ -1129,11 +1249,37 @@ static int l_remark(lua_State *L) {
     }
 
     size_t size;
-    // data
     const char *s = luaL_checklstring(L, 1, &size);
-
     int res = CmdRem(s);
     lua_pushinteger(L, res);
+    return 1;
+}
+
+static int l_set_iso_dep_state(lua_State *L) {
+
+    //Check number of arguments
+    int n = lua_gettop(L);
+    if (n != 1)  {
+        return returnToLuaWithError(L, "Only one value allowed");
+    }
+
+    size_t state = luaL_checknumber(L, 1);
+    switch (state) {
+        case 0:
+            SetISODEPState(ISODEP_INACTIVE);
+            break;
+        case 1:
+            SetISODEPState(ISODEP_NFCA);
+            break;
+        case 2:
+            SetISODEPState(ISODEP_NFCB);
+            break;
+        case 3:
+            SetISODEPState(ISODEP_NFCV);
+            break;
+        default:
+            return returnToLuaWithError(L, "Wrong ISODEP STATE value");
+    }
     return 1;
 }
 
@@ -1141,7 +1287,7 @@ static int l_remark(lua_State *L) {
 // 2. extension
 // output: full search path to file
 static int l_searchfile(lua_State *L) {
-    //Check number of arguments
+    // Check number of arguments
     int n = lua_gettop(L);
     if (n != 2)  {
         return returnToLuaWithError(L, "Only filename and extension");
@@ -1150,8 +1296,9 @@ static int l_searchfile(lua_State *L) {
     size_t size;
     // data
     const char *filename = luaL_checklstring(L, 1, &size);
-    if (size == 0)
+    if (size == 0) {
         return returnToLuaWithError(L, "Must specify filename");
+    }
 
     const char *suffix =  luaL_checklstring(L, 2, &size);
     char *path;
@@ -1178,17 +1325,20 @@ static int l_ewd(lua_State *L) {
 static int l_cwd(lua_State *L) {
 
     uint16_t path_len = FILENAME_MAX; // should be a good starting point
-    bool error = false;
     char *cwd = (char *)calloc(path_len, sizeof(uint8_t));
+    if (cwd == NULL) {
+        return returnToLuaWithError(L, "Failed to allocate memory");
+    }
 
-    while (!error && (GetCurrentDir(cwd, path_len) == NULL)) {
+    while (GetCurrentDir(cwd, path_len) == NULL) {
         if (errno == ERANGE) {  // Need bigger buffer
             path_len += 10;      // if buffer was too small add 10 characters and try again
-            cwd = realloc(cwd, path_len);
-            if (cwd == NULL) {
+            char *cwdNew = realloc(cwd, path_len);
+            if (cwdNew == NULL) {
                 free(cwd);
                 return returnToLuaWithError(L, "Failed to allocate memory");
             }
+            cwd = cwdNew;
         } else {
             free(cwd);
             return returnToLuaWithError(L, "Failed to get current working directory");
@@ -1197,6 +1347,19 @@ static int l_cwd(lua_State *L) {
     lua_pushstring(L, cwd);
     free(cwd);
     return 1;
+}
+
+// ref:  https://github.com/RfidResearchGroup/proxmark3/issues/891
+// redirect LUA's print to Proxmark3 PrintAndLogEx
+static int l_printandlogex(lua_State *L) {
+    int n = lua_gettop(L);
+    for (int i = 1; i <= n; i++) {
+        if (lua_isstring(L, i)) {
+            PrintAndLogEx(NORMAL, "%s\t" NOLF, lua_tostring(L, i));
+        }
+    }
+    PrintAndLogEx(NORMAL, "");
+    return 0;
 }
 
 /**
@@ -1224,7 +1387,6 @@ static int setLuaPath(lua_State *L, const char *path) {
 
 int set_pm3_libraries(lua_State *L) {
     static const luaL_Reg libs[] = {
-        {"SendCommandOLD",              l_SendCommandOLD},
         {"SendCommandMIX",              l_SendCommandMIX},
         {"SendCommandNG",               l_SendCommandNG},
         {"GetFromBigBuf",               l_GetFromBigBuf},
@@ -1233,7 +1395,7 @@ int set_pm3_libraries(lua_State *L) {
         {"WaitForResponseTimeout",      l_WaitForResponseTimeout},
         {"mfDarkside",                  l_mfDarkside},
         {"foobar",                      l_foobar},
-        {"kbd_enter_pressed",               l_kbd_enter_pressed},
+        {"kbd_enter_pressed",           l_kbd_enter_pressed},
         {"clearCommandBuffer",          l_clearCommandBuffer},
         {"console",                     l_CmdConsole},
         {"iso15693_crc",                l_iso15693_crc},
@@ -1243,6 +1405,7 @@ int set_pm3_libraries(lua_State *L) {
         {"aes128_encrypt",              l_aes128encrypt_cbc},
         {"aes128_encrypt_ecb",          l_aes128encrypt_ecb},
         {"crc8legic",                   l_crc8legic},
+        {"crc16legic",                  l_crc16legic},
         {"crc16",                       l_crc16},
         {"crc64",                       l_crc64},
         {"crc64_ecma182",               l_crc64_ecma182},
@@ -1252,7 +1415,7 @@ int set_pm3_libraries(lua_State *L) {
         {"hardnested",                  l_hardnested},
         {"detect_prng",                 l_detect_prng},
 //        {"keygen.algoA",                l_keygen_algoA},
-//        {"keygen.algoB",                l_keygen_algoB},
+        {"keygen_algo_b",               l_keygen_algoB},
 //        {"keygen.algoC",                l_keygen_algoC},
         {"keygen_algo_d",               l_keygen_algoD},
         {"t55xx_readblock",             l_T55xx_readblock},
@@ -1264,26 +1427,33 @@ int set_pm3_libraries(lua_State *L) {
         {"ewd",                         l_ewd},
         {"ud",                          l_ud},
         {"rem",                         l_remark},
+        {"em4x05_read",                 l_em4x05_read},
+        {"em4x50_read",                 l_em4x50_read},
+        {"ul_read_uid",                 l_ul_read_uid},
+        {"set_isodepstate",             l_set_iso_dep_state},
         {NULL, NULL}
     };
 
     lua_pushglobaltable(L);
     // Core library is in this table. Contains '
-    //this is 'pm3' table
+    // this is 'pm3' table
     lua_newtable(L);
 
-    //Put the function into the hash table.
+    // put the function into the hash table.
     for (int i = 0; libs[i].name; i++) {
         lua_pushcfunction(L, libs[i].func);
         lua_setfield(L, -2, libs[i].name);//set the name, pop stack
     }
-    //Name of 'core'
+    // Name of 'core'
     lua_setfield(L, -2, "core");
 
-    //-- remove the global environment table from the stack
+    // remove the global environment table from the stack
     lua_pop(L, 1);
 
-    //--add to the LUA_PATH (package.path in lua)
+    // print redirect here
+    lua_register(L, "print", l_printandlogex);
+
+    // add to the LUA_PATH (package.path in lua)
     // so we can load scripts from various places:
     const char *exec_path = get_my_executable_directory();
     if (exec_path != NULL) {

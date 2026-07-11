@@ -1,11 +1,19 @@
 //-----------------------------------------------------------------------------
-// Merlok - June 2011
-// Gerhard de Koning Gans - May 2008
-// Hagen Fritsch - June 2010
+// Copyright (C) Jonathan Westhues, Nov 2006
+// Copyright (C) Gerhard de Koning Gans - May 2008
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Routines to support ISO 14443 type A.
 //-----------------------------------------------------------------------------
@@ -84,6 +92,22 @@ typedef struct {
     uint8_t *parity;
 } tUart14a;
 
+// indices into responses array:
+typedef enum {
+    RESP_INDEX_ATQA,
+    RESP_INDEX_UIDC1,
+    RESP_INDEX_UIDC2,
+    RESP_INDEX_UIDC3,
+    RESP_INDEX_SAKC1,
+    RESP_INDEX_SAKC2,
+    RESP_INDEX_SAKC3,
+    RESP_INDEX_RATS,
+    RESP_INDEX_VERSION,
+    RESP_INDEX_SIGNATURE,
+    RESP_INDEX_PPS,
+    RESP_INDEX_PACK,
+} resp_index_t;
+
 #ifndef AddCrc14A
 # define AddCrc14A(data, len) compute_crc(CRC_14443_A, (data), (len), (data)+(len), (data)+(len)+1)
 #endif
@@ -96,6 +120,9 @@ typedef struct {
 # define CheckCrc14A(data, len) check_crc(CRC_14443_A, (data), (len))
 #endif
 
+void printHf14aConfig(void);
+void setHf14aConfig(const hf14a_config *hc);
+hf14a_config *getHf14aConfig(void);
 void iso14a_set_timeout(uint32_t timeout);
 uint32_t iso14a_get_timeout(void);
 
@@ -111,24 +138,24 @@ RAMFUNC bool MillerDecoding(uint8_t bit, uint32_t non_real_time);
 RAMFUNC int ManchesterDecoding(uint8_t bit, uint16_t offset, uint32_t non_real_time);
 
 void RAMFUNC SniffIso14443a(uint8_t param);
-void SimulateIso14443aTag(uint8_t tagType, uint8_t flags, uint8_t *data);
-bool SimulateIso14443aInit(int tagType, int flags, uint8_t *data, tag_response_info_t **responses, uint32_t *cuid, uint32_t counters[3], uint8_t tearings[3], uint8_t *pages);
+void SimulateIso14443aTag(uint8_t tagType, uint16_t flags, uint8_t *data, uint8_t exitAfterNReads);
+bool SimulateIso14443aInit(uint8_t tagType, uint16_t flags, uint8_t *data, tag_response_info_t **responses, uint32_t *cuid, uint32_t counters[3], uint8_t tearings[3], uint8_t *pages);
 bool GetIso14443aCommandFromReader(uint8_t *received, uint8_t *par, int *len);
 void iso14443a_antifuzz(uint32_t flags);
 void ReaderIso14443a(PacketCommandNG *c);
 void ReaderTransmit(uint8_t *frame, uint16_t len, uint32_t *timing);
 void ReaderTransmitBitsPar(uint8_t *frame, uint16_t bits, uint8_t *par, uint32_t *timing);
 void ReaderTransmitPar(uint8_t *frame, uint16_t len, uint8_t *par, uint32_t *timing);
-int ReaderReceive(uint8_t *receivedAnswer, uint8_t *par);
+uint16_t ReaderReceive(uint8_t *receivedAnswer, uint8_t *par);
 
 void iso14443a_setup(uint8_t fpga_minor_mode);
 int iso14_apdu(uint8_t *cmd, uint16_t cmd_len, bool send_chaining, void *data, uint8_t *res);
 int iso14443a_select_card(uint8_t *uid_ptr, iso14a_card_select_t *p_card, uint32_t *cuid_ptr, bool anticollision, uint8_t num_cascades, bool no_rats);
+int iso14443a_select_cardEx(uint8_t *uid_ptr, iso14a_card_select_t *p_card, uint32_t *cuid_ptr, bool anticollision, uint8_t num_cascades, bool no_rats, iso14a_polling_parameters_t *polling_parameters);
 int iso14443a_fast_select_card(uint8_t *uid_ptr, uint8_t num_cascades);
 void iso14a_set_trigger(bool enable);
-void hf_field_off(void);
 
-int EmSendCmd14443aRaw(uint8_t *resp, uint16_t respLen);
+int EmSendCmd14443aRaw(const uint8_t *resp, uint16_t respLen);
 int EmSend4bit(uint8_t resp);
 int EmSendCmd(uint8_t *resp, uint16_t respLen);
 int EmSendCmdEx(uint8_t *resp, uint16_t respLen, bool collision);
@@ -147,5 +174,8 @@ void ReaderMifare(bool first_try, uint8_t block, uint8_t keytype);
 void DetectNACKbug(void);
 
 bool GetIso14443aAnswerFromTag_Thinfilm(uint8_t *receivedResponse, uint8_t *received_len);
+
+extern iso14a_polling_parameters_t WUPA_POLLING_PARAMETERS;
+extern iso14a_polling_parameters_t REQA_POLLING_PARAMETERS;
 
 #endif /* __ISO14443A_H */

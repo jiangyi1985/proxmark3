@@ -1,40 +1,36 @@
-/*****************************************************************************
- * WARNING
- *
- * THIS CODE IS CREATED FOR EXPERIMENTATION AND EDUCATIONAL USE ONLY.
- *
- * USAGE OF THIS CODE IN OTHER WAYS MAY INFRINGE UPON THE INTELLECTUAL
- * PROPERTY OF OTHER PARTIES, SUCH AS INSIDE SECURE AND HID GLOBAL,
- * AND MAY EXPOSE YOU TO AN INFRINGEMENT ACTION FROM THOSE PARTIES.
- *
- * THIS CODE SHOULD NEVER BE USED TO INFRINGE PATENTS OR INTELLECTUAL PROPERTY RIGHTS.
- *
- *****************************************************************************
- *
- * This file is part of loclass. It is a reconstructon of the cipher engine
- * used in iClass, and RFID techology.
- *
- * The implementation is based on the work performed by
- * Flavio D. Garcia, Gerhard de Koning Gans, Roel Verdult and
- * Milosch Meriac in the paper "Dismantling IClass".
- *
- * Copyright (C) 2014 Martin Holst Swende
- *
- * This is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as published
- * by the Free Software Foundation, or, at your option, any later version.
- *
- * This file is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with loclass.  If not, see <http://www.gnu.org/licenses/>.
- *
- *
- ****************************************************************************/
-
+//-----------------------------------------------------------------------------
+// Borrowed initially from https://github.com/holiman/loclass
+// Copyright (C) 2014 Martin Holst Swende
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
+// WARNING
+//
+// THIS CODE IS CREATED FOR EXPERIMENTATION AND EDUCATIONAL USE ONLY.
+//
+// USAGE OF THIS CODE IN OTHER WAYS MAY INFRINGE UPON THE INTELLECTUAL
+// PROPERTY OF OTHER PARTIES, SUCH AS INSIDE SECURE AND HID GLOBAL,
+// AND MAY EXPOSE YOU TO AN INFRINGEMENT ACTION FROM THOSE PARTIES.
+//
+// THIS CODE SHOULD NEVER BE USED TO INFRINGE PATENTS OR INTELLECTUAL PROPERTY RIGHTS.
+//-----------------------------------------------------------------------------
+// It is a reconstruction of the cipher engine used in iClass, and RFID techology.
+//
+// The implementation is based on the work performed by
+// Flavio D. Garcia, Gerhard de Koning Gans, Roel Verdult and
+// Milosch Meriac in the paper "Dismantling IClass".
+//-----------------------------------------------------------------------------
 
 #include "cipher.h"
 #include "cipherutils.h"
@@ -60,14 +56,14 @@ typedef struct {
     uint8_t r;
     uint8_t b;
     uint16_t t;
-} State;
+} State_t;
 
 /**
 *  Definition 2. The feedback function for the top register T : F 16/2 → F 2
 *  is defined as
 *  T (x 0 x 1 . . . . . . x 15 ) = x 0 ⊕ x 1 ⊕ x 5 ⊕ x 7 ⊕ x 10 ⊕ x 11 ⊕ x 14 ⊕ x 15 .
 **/
-static bool T(State state) {
+static bool T(State_t state) {
     /*
         bool x0 = state.t & 0x8000;
         bool x1 = state.t & 0x4000;
@@ -93,7 +89,7 @@ static bool T(State state) {
 *  Similarly, the feedback function for the bottom register B : F 8/2 → F 2 is defined as
 *  B(x 0 x 1 . . . x 7 ) = x 1 ⊕ x 2 ⊕ x 3 ⊕ x 7 .
 **/
-/*static bool B(State state) {
+/*static bool B(State_t state) {
     bool x1 = state.b & 0x40;
     bool x2 = state.b & 0x20;
     bool x3 = state.b & 0x10;
@@ -169,12 +165,12 @@ static uint8_t _select(bool x, bool y, uint8_t r) {
 * @param s - state
 * @param k - array containing 8 bytes
 **/
-static State successor(uint8_t *k, State s, bool y) {
+static State_t successor(const uint8_t *k, State_t s, bool y) {
     bool r0 = s.r >> 7 & 0x1;
     bool r4 = s.r >> 3 & 0x1;
     bool r7 = s.r & 0x1;
 
-    State successor = {0, 0, 0, 0};
+    State_t successor = {0, 0, 0, 0};
 
     successor.t = s.t >> 1;
     successor.t |= ((T(s)) ^ (r0) ^ (r4)) << 15;
@@ -195,7 +191,7 @@ static State successor(uint8_t *k, State s, bool y) {
 *  to multiple bit input x ∈ F n 2 which we define as
 * @param k - array containing 8 bytes
 **/
-static State suc(uint8_t *k, State s, BitstreamIn *bitstream) {
+static State_t suc(uint8_t *k, State_t s, BitstreamIn_t *bitstream) {
     if (bitsLeft(bitstream) == 0) {
         return s;
     }
@@ -211,14 +207,14 @@ static State suc(uint8_t *k, State s, BitstreamIn *bitstream) {
 *  output(k, s, x 0 . . . x n ) = output(s) · output(k, s ′ , x 1 . . . x n )
 *  where s ′ = suc(k, s, x 0 ).
 **/
-static void output(uint8_t *k, State s, BitstreamIn *in,  BitstreamOut *out) {
+static void output(uint8_t *k, State_t s, BitstreamIn_t *in,  BitstreamOut_t *out) {
     if (bitsLeft(in) == 0) {
         return;
     }
     pushBit(out, (s.r >> 2) & 1);
     //Remove first bit
     uint8_t x0 = headBit(in);
-    State ss = successor(k, s, x0);
+    State_t ss = successor(k, s, x0);
     output(k, ss, in, out);
 }
 
@@ -227,8 +223,8 @@ static void output(uint8_t *k, State s, BitstreamIn *in,  BitstreamOut *out) {
 * key k ∈ (F 82 ) 8 and outputs the initial cipher state s =< l, r, t, b >
 **/
 
-static State init(uint8_t *k) {
-    State s = {
+static State_t init(const uint8_t *k) {
+    State_t s = {
         ((k[0] ^ 0x4c) + 0xEC) & 0xFF,// l
         ((k[0] ^ 0x4c) + 0x21) & 0xFF,// r
         0x4c, // b
@@ -237,10 +233,10 @@ static State init(uint8_t *k) {
     return s;
 }
 
-static void MAC(uint8_t *k, BitstreamIn input, BitstreamOut out) {
+static void MAC(uint8_t *k, BitstreamIn_t input, BitstreamOut_t out) {
     uint8_t zeroes_32[] = {0, 0, 0, 0};
-    BitstreamIn input_32_zeroes = {zeroes_32, sizeof(zeroes_32) * 8, 0};
-    State initState = suc(k, init(k), &input);
+    BitstreamIn_t input_32_zeroes = {zeroes_32, sizeof(zeroes_32) * 8, 0};
+    State_t initState = suc(k, init(k), &input);
     output(k, initState, &input_32_zeroes, &out);
 }
 
@@ -252,9 +248,9 @@ void doMAC(uint8_t *cc_nr_p, uint8_t *div_key_p, uint8_t mac[4]) {
     memcpy(div_key, div_key_p, 8);
 
     reverse_arraybytes(cc_nr, 12);
-    BitstreamIn bitstream = {cc_nr, 12 * 8, 0};
+    BitstreamIn_t bitstream = {cc_nr, 12 * 8, 0};
     uint8_t dest [] = {0, 0, 0, 0, 0, 0, 0, 0};
-    BitstreamOut out = { dest, sizeof(dest) * 8, 0 };
+    BitstreamOut_t out = { dest, sizeof(dest) * 8, 0 };
     MAC(div_key, bitstream, out);
     //The output MAC must also be reversed
     reverse_arraybytes(dest, sizeof(dest));
@@ -270,9 +266,9 @@ void doMAC_N(uint8_t *address_data_p, uint8_t address_data_size, uint8_t *div_ke
     memcpy(div_key, div_key_p, 8);
 
     reverse_arraybytes(address_data, address_data_size);
-    BitstreamIn bitstream = {address_data, address_data_size * 8, 0};
+    BitstreamIn_t bitstream = {address_data, address_data_size * 8, 0};
     uint8_t dest [] = {0, 0, 0, 0, 0, 0, 0, 0};
-    BitstreamOut out = { dest, sizeof(dest) * 8, 0 };
+    BitstreamOut_t out = { dest, sizeof(dest) * 8, 0 };
     MAC(div_key, bitstream, out);
     //The output MAC must also be reversed
     reverse_arraybytes(dest, sizeof(dest));
@@ -294,9 +290,9 @@ int testMAC(void) {
     doMAC(cc_nr, div_key, calculated_mac);
 
     if (memcmp(calculated_mac, correct_MAC, 4) == 0) {
-        PrintAndLogEx(SUCCESS, "    MAC calculation (%s)", _GREEN_("ok"));
+        PrintAndLogEx(SUCCESS, "    MAC calculation ( %s )", _GREEN_("ok"));
     } else {
-        PrintAndLogEx(FAILED, "    MAC calculation (%s)", _RED_("failed"));
+        PrintAndLogEx(FAILED, "    MAC calculation ( %s )", _RED_("fail"));
         printarr("    Calculated_MAC", calculated_mac, 4);
         printarr("    Correct_MAC   ", correct_MAC, 4);
         return PM3_ESOFT;

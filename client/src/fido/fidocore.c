@@ -1,20 +1,27 @@
 //-----------------------------------------------------------------------------
-// Copyright (C) 2018 Merlok
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // FIDO2 authenticators core data and commands
 // https://fidoalliance.org/specs/fido-v2.0-id-20180227/fido-client-to-authenticator-protocol-v2.0-id-20180227.html
 //-----------------------------------------------------------------------------
-//
 
 #include "fidocore.h"
 
 #include "commonutil.h"  // ARRAYLEN
 
-#include "emv/emvcore.h"
+#include "iso7816/iso7816core.h"
 #include "emv/emvjson.h"
 #include "cbortools.h"
 #include "x509_crt.h"
@@ -22,7 +29,6 @@
 #include "crypto/libpcrypto.h"
 #include "additional_ca.h"
 #include "cose.h"
-#include "emv/dump.h"
 #include "ui.h"
 #include "util.h"
 
@@ -173,17 +179,17 @@ const char *fido2GetCmdMemberDescription(uint8_t cmdCode, bool isResponse, int m
 int FIDOSelect(bool ActivateField, bool LeaveFieldON, uint8_t *Result, size_t MaxResultLen, size_t *ResultLen, uint16_t *sw) {
     uint8_t data[] = {0xA0, 0x00, 0x00, 0x06, 0x47, 0x2F, 0x00, 0x01};
 
-    return EMVSelect(ECC_CONTACTLESS, ActivateField, LeaveFieldON, data, sizeof(data), Result, MaxResultLen, ResultLen, sw, NULL);
+    return Iso7816Select(CC_CONTACTLESS, ActivateField, LeaveFieldON, data, sizeof(data), Result, MaxResultLen, ResultLen, sw);
 }
 
-int FIDOExchange(sAPDU apdu, uint8_t *Result, size_t MaxResultLen, size_t *ResultLen, uint16_t *sw) {
-    int res = EMVExchange(ECC_CONTACTLESS, true, apdu, Result, MaxResultLen, ResultLen, sw, NULL);
+int FIDOExchange(sAPDU_t apdu, uint8_t *Result, size_t MaxResultLen, size_t *ResultLen, uint16_t *sw) {
+    int res = Iso7816Exchange(CC_CONTACTLESS, true, apdu, Result, MaxResultLen, ResultLen, sw);
     if (res == 5) // apdu result (sw) not a 0x9000
         res = 0;
     // software chaining
     while (!res && (*sw >> 8) == 0x61) {
         size_t oldlen = *ResultLen;
-        res = EMVExchange(ECC_CONTACTLESS, true, (sAPDU) {0x00, 0xC0, 0x00, 0x00, 0x00, NULL}, &Result[oldlen], MaxResultLen - oldlen, ResultLen, sw, NULL);
+        res = Iso7816Exchange(CC_CONTACTLESS, true, (sAPDU_t) {0x00, 0xC0, 0x00, 0x00, 0x00, NULL}, &Result[oldlen], MaxResultLen - oldlen, ResultLen, sw);
         if (res == 5) // apdu result (sw) not a 0x9000
             res = 0;
 
@@ -195,30 +201,30 @@ int FIDOExchange(sAPDU apdu, uint8_t *Result, size_t MaxResultLen, size_t *Resul
 }
 
 int FIDORegister(uint8_t *params, uint8_t *Result, size_t MaxResultLen, size_t *ResultLen, uint16_t *sw) {
-    return FIDOExchange((sAPDU) {0x00, 0x01, 0x03, 0x00, 64, params}, Result, MaxResultLen, ResultLen, sw);
+    return FIDOExchange((sAPDU_t) {0x00, 0x01, 0x03, 0x00, 64, params}, Result, MaxResultLen, ResultLen, sw);
 }
 
 int FIDOAuthentication(uint8_t *params, uint8_t paramslen, uint8_t controlb, uint8_t *Result, size_t MaxResultLen, size_t *ResultLen, uint16_t *sw) {
-    return FIDOExchange((sAPDU) {0x00, 0x02, controlb, 0x00, paramslen, params}, Result, MaxResultLen, ResultLen, sw);
+    return FIDOExchange((sAPDU_t) {0x00, 0x02, controlb, 0x00, paramslen, params}, Result, MaxResultLen, ResultLen, sw);
 }
 
 int FIDO2GetInfo(uint8_t *Result, size_t MaxResultLen, size_t *ResultLen, uint16_t *sw) {
     uint8_t data[] = {fido2CmdGetInfo};
-    return FIDOExchange((sAPDU) {0x80, 0x10, 0x00, 0x00, sizeof(data), data}, Result, MaxResultLen, ResultLen, sw);
+    return FIDOExchange((sAPDU_t) {0x80, 0x10, 0x00, 0x00, sizeof(data), data}, Result, MaxResultLen, ResultLen, sw);
 }
 
 int FIDO2MakeCredential(uint8_t *params, uint8_t paramslen, uint8_t *Result, size_t MaxResultLen, size_t *ResultLen, uint16_t *sw) {
     uint8_t data[paramslen + 1];
     data[0] = fido2CmdMakeCredential;
     memcpy(&data[1], params, paramslen);
-    return FIDOExchange((sAPDU) {0x80, 0x10, 0x00, 0x00, sizeof(data), data}, Result, MaxResultLen, ResultLen, sw);
+    return FIDOExchange((sAPDU_t) {0x80, 0x10, 0x00, 0x00, sizeof(data), data}, Result, MaxResultLen, ResultLen, sw);
 }
 
 int FIDO2GetAssertion(uint8_t *params, uint8_t paramslen, uint8_t *Result, size_t MaxResultLen, size_t *ResultLen, uint16_t *sw) {
     uint8_t data[paramslen + 1];
     data[0] = fido2CmdGetAssertion;
     memcpy(&data[1], params, paramslen);
-    return FIDOExchange((sAPDU) {0x80, 0x10, 0x00, 0x00, sizeof(data), data}, Result, MaxResultLen, ResultLen, sw);
+    return FIDOExchange((sAPDU_t) {0x80, 0x10, 0x00, 0x00, sizeof(data), data}, Result, MaxResultLen, ResultLen, sw);
 }
 
 int FIDOCheckDERAndGetKey(uint8_t *der, size_t derLen, bool verbose, uint8_t *publicKey, size_t publicKeyMaxLen) {
@@ -255,7 +261,7 @@ int FIDOCheckDERAndGetKey(uint8_t *der, size_t derLen, bool verbose, uint8_t *pu
     if (res) {
         PrintAndLogEx(ERR, "ERROR: DER verify returned 0x%x - %s\n", (res < 0) ? -res : res, ecdsa_get_error(res));
     } else {
-        PrintAndLogEx(SUCCESS, "Certificate OK.\n");
+        PrintAndLogEx(SUCCESS, "Certificate ( " _GREEN_("ok") " )\n");
     }
 
     if (verbose) {
@@ -274,7 +280,7 @@ int FIDOCheckDERAndGetKey(uint8_t *der, size_t derLen, bool verbose, uint8_t *pu
     }
 
     if (verbose)
-        PrintAndLogEx(NORMAL, "------------------DER-------------------");
+        PrintAndLogEx(INFO, "------------------DER-------------------");
 
     mbedtls_x509_crt_free(&cert);
     mbedtls_x509_crt_free(&cacert);
@@ -364,10 +370,10 @@ static int FIDO2CheckSignature(json_t *root, uint8_t *publickey, uint8_t *sign, 
     uint8_t sval[300] = {0};
 
     int res = ecdsa_asn1_get_signature(sign, signLen, rval, sval);
-    if (!res) {
+    if (res == PM3_SUCCESS) {
         if (verbose) {
-            PrintAndLogEx(NORMAL, "  r: %s", sprint_hex(rval, 32));
-            PrintAndLogEx(NORMAL, "  s: %s", sprint_hex(sval, 32));
+            PrintAndLogEx(INFO, "  r: %s", sprint_hex(rval, 32));
+            PrintAndLogEx(INFO, "  s: %s", sprint_hex(sval, 32));
         }
 
         uint8_t clientDataHash[32] = {0};
@@ -389,13 +395,13 @@ static int FIDO2CheckSignature(json_t *root, uint8_t *publickey, uint8_t *sign, 
         res = ecdsa_signature_verify(MBEDTLS_ECP_DP_SECP256R1, publickey, xbuf, xbuflen, sign, signLen, true);
         if (res) {
             if (res == MBEDTLS_ERR_ECP_VERIFY_FAILED) {
-                PrintAndLogEx(WARNING, "Signature is " _RED_("NOT VALID"));
+                PrintAndLogEx(WARNING, "Signature is ( " _RED_("not valid") " )");
             } else {
                 PrintAndLogEx(WARNING, "Other signature check error: %x %s", (res < 0) ? -res : res, ecdsa_get_error(res));
             }
             return res;
         } else {
-            PrintAndLogEx(SUCCESS, "Signature is OK.");
+            PrintAndLogEx(SUCCESS, "Signature is ( " _GREEN_("ok") " )");
         }
     } else {
         PrintAndLogEx(ERR, "Invalid signature. res = %d.", res);
@@ -445,9 +451,9 @@ int FIDO2MakeCredentionalParseRes(json_t *root, uint8_t *data, size_t dataLen, b
 
     // check RP ID Hash
     if (CheckrpIdHash(root, ubuf)) {
-        PrintAndLogEx(SUCCESS, "rpIdHash OK.");
+        PrintAndLogEx(SUCCESS, "rpIdHash ( " _GREEN_("ok")" )");
     } else {
-        PrintAndLogEx(ERR, "rpIdHash ERROR!");
+        PrintAndLogEx(ERR, "rpIdHash " _RED_("ERROR!!"));
     }
 
     PrintAndLogEx(INFO, "Flags 0x%02x:", ubuf[32]);
@@ -488,9 +494,9 @@ int FIDO2MakeCredentionalParseRes(json_t *root, uint8_t *data, size_t dataLen, b
 
     if (showCBOR) {
         PrintAndLogEx(INFO, "COSE structure:");
-        PrintAndLogEx(NORMAL, "---------------- CBOR ------------------");
+        PrintAndLogEx(INFO, "---------------- CBOR ------------------");
         TinyCborPrintFIDOPackage(fido2COSEKey, true, &ubuf[55 + cridlen], cplen);
-        PrintAndLogEx(NORMAL, "---------------- CBOR ------------------");
+        PrintAndLogEx(INFO, "---------------- CBOR ------------------");
     }
 
     res = COSEGetECDSAKey(&ubuf[55 + cridlen], cplen, verbose, coseKey);
@@ -542,11 +548,12 @@ int FIDO2MakeCredentionalParseRes(json_t *root, uint8_t *data, size_t dataLen, b
             res = CborGetArrayBinStringValue(&mapsmt, der, sizeof(der), &derLen);
             cbor_check(res);
             if (verbose2) {
-                PrintAndLogEx(NORMAL, "DER certificate[%zu]:\n------------------DER-------------------", derLen);
-                dump_buffer_simple((const unsigned char *)der, derLen, NULL);
-                PrintAndLogEx(NORMAL, "\n----------------DER---------------------");
+                PrintAndLogEx(INFO, "DER certificate[%zu]:", derLen);
+                PrintAndLogEx(INFO, "------------------DER-------------------");
+                PrintAndLogEx(INFO, "%s", sprint_hex(der, derLen));
+                PrintAndLogEx(INFO, "----------------DER---------------------");
             } else {
-                PrintAndLogEx(NORMAL, "DER [%zu]: %s...", derLen, sprint_hex(der, MIN(derLen, 16)));
+                PrintAndLogEx(INFO, "DER [%zu]: %s...", derLen, sprint_hex(der, MIN(derLen, 16)));
             }
             JsonSaveBufAsHexCompact(root, "$.AppData.DER", der, derLen);
         }
@@ -558,9 +565,9 @@ int FIDO2MakeCredentionalParseRes(json_t *root, uint8_t *data, size_t dataLen, b
 
     // print DER certificate in TLV view
     if (showDERTLV) {
-        PrintAndLogEx(NORMAL, "----------------DER TLV-----------------");
+        PrintAndLogEx(INFO, "----------------DER TLV-----------------");
         asn1_print(der, derLen, "  ");
-        PrintAndLogEx(NORMAL, "----------------DER TLV-----------------");
+        PrintAndLogEx(INFO, "----------------DER TLV-----------------");
     }
     FIDOCheckDERAndGetKey(der, derLen, verbose, public_key, sizeof(public_key));
     JsonSaveBufAsHexCompact(root, "$.AppData.DERPublicKey", public_key, sizeof(public_key));
@@ -704,9 +711,9 @@ int FIDO2GetAssertionParseRes(json_t *root, uint8_t *data, size_t dataLen, bool 
 
     // check RP ID Hash
     if (CheckrpIdHash(root, ubuf)) {
-        PrintAndLogEx(SUCCESS, "rpIdHash OK.");
+        PrintAndLogEx(SUCCESS, "rpIdHash ( " _GREEN_("ok")" )");
     } else {
-        PrintAndLogEx(ERR, "rpIdHash ERROR!");
+        PrintAndLogEx(ERR, "rpIdHash " _RED_("ERROR!!"));
     }
 
     PrintAndLogEx(INFO, "Flags 0x%02x:", ubuf[32]);
@@ -760,7 +767,7 @@ int FIDO2GetAssertionParseRes(json_t *root, uint8_t *data, size_t dataLen, bool 
                 JsonLoadBufAsHex(root, "$.UserEntity.id", idbuf, sizeof(idbuf), &idbuflen);
 
                 if (idbuflen == n && !memcmp(idbuf, cid, idbuflen)) {
-                    PrintAndLogEx(SUCCESS, "UserEntity id OK.");
+                    PrintAndLogEx(SUCCESS, "UserEntity id ( " _GREEN_("ok") " )");
                 } else {
                     PrintAndLogEx(ERR, "ERROR: Wrong UserEntity id (from json: %s)", sprint_hex(idbuf, idbuflen));
                 }

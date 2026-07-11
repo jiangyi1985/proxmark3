@@ -1,8 +1,17 @@
 //-----------------------------------------------------------------------------
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Low frequency Verichip tag commands
 //NRZ, RF/32, 128 bits long
@@ -38,19 +47,15 @@ static int usage_lf_verichip_clone(void) {
 }
 
 //see NRZDemod for what args are accepted
-static int CmdVerichipDemod(const char *Cmd) {
-    (void)Cmd;
-    return demodVerichip();
-}
-
-int demodVerichip(void) {
+int demodVerichip(bool verbose) {
+    (void) verbose; // unused so far
     //NRZ
-    if (NRZrawDemod("", false) != PM3_SUCCESS) {
+    if (NRZrawDemod(0, 0, 100, false) != PM3_SUCCESS) {
         PrintAndLogEx(DEBUG, "DEBUG: Error - VERICHIP: NRZ Demod failed");
         return PM3_ESOFT;
     }
-    size_t size = DemodBufferLen;
-    int ans = detectVerichip(DemodBuffer, &size);
+    size_t size = g_DemodBufferLen;
+    int ans = detectVerichip(g_DemodBuffer, &size);
     if (ans < 0) {
         if (ans == -1)
             PrintAndLogEx(DEBUG, "DEBUG: Error - VERICHIP: too few bits found");
@@ -63,14 +68,14 @@ int demodVerichip(void) {
 
         return PM3_ESOFT;
     }
-    setDemodBuff(DemodBuffer, 128, ans);
+    setDemodBuff(g_DemodBuffer, 128, ans);
     setClockGrid(g_DemodClock, g_DemodStartIdx + (ans * g_DemodClock));
 
     //got a good demod
-    uint32_t raw1 = bytebits_to_byte(DemodBuffer, 32);
-    uint32_t raw2 = bytebits_to_byte(DemodBuffer + 32, 32);
-    uint32_t raw3 = bytebits_to_byte(DemodBuffer + 64, 32);
-    uint32_t raw4 = bytebits_to_byte(DemodBuffer + 96, 32);
+    uint32_t raw1 = bytebits_to_byte(g_DemodBuffer, 32);
+    uint32_t raw2 = bytebits_to_byte(g_DemodBuffer + 32, 32);
+    uint32_t raw3 = bytebits_to_byte(g_DemodBuffer + 64, 32);
+    uint32_t raw4 = bytebits_to_byte(g_DemodBuffer + 96, 32);
 
     // preamble     then appears to have marker bits of "10"                                                                                                                                       CS?
     // 11111111001000000 10 01001100 10 00001101 10 00001101 10 00001101 10 00001101 10 00001101 10 00001101 10 00001101 10 00001101 10 10001100 10 100000001
@@ -81,9 +86,15 @@ int demodVerichip(void) {
     return PM3_SUCCESS;
 }
 
+static int CmdVerichipDemod(const char *Cmd) {
+    (void)Cmd;
+    return demodVerichip(true);
+}
+
 static int CmdVerichipRead(const char *Cmd) {
+    (void)Cmd;
     lf_read(false, 4096 * 2 + 20);
-    return CmdVerichipDemod(Cmd);
+    return demodVerichip(true);
 }
 
 static int CmdVerichipClone(const char *Cmd) {
@@ -140,8 +151,8 @@ static int CmdVerichipSim(const char *Cmd) {
 
 static command_t CommandTable[] = {
     {"help",  CmdHelp,           AlwaysAvailable, "This help"},
-    {"demod", CmdVerichipDemod,  AlwaysAvailable, "Demodulate an VERICHIP tag from the GraphBuffer"},
-    {"read",  CmdVerichipRead,   IfPm3Lf,         "Attempt to read and extract tag data from the antenna"},
+    {"demod", CmdVerichipDemod,  AlwaysAvailable, "demodulate an VERICHIP tag from the GraphBuffer"},
+    {"read",  CmdVerichipRead,   IfPm3Lf,         "attempt to read and extract tag data"},
     {"clone", CmdVerichipClone,  IfPm3Lf,         "clone VERICHIP tag"},
     {"sim",   CmdVerichipSim,    IfPm3Lf,         "simulate VERICHIP tag"},
     {NULL, NULL, NULL, NULL}

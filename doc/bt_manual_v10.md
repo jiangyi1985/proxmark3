@@ -190,10 +190,11 @@ The first time, your OS will ask you for pairing. The default PIN is
 1234. If PIN is not typed in quickly, the client might timeout. Simply
 restart it again after pairing.
 
-If your OS doesn't prompt you for pairing, you can do it in command line, e.g. (again, replace with your addon MAC address):
+If your OS doesn't prompt you for pairing or if the device connects and immediately disconnects, you can pair it in command line, e.g. (again, replace with your addon MAC address):
 
 ```sh
 bluetoothctl
+[bluetooth]# remove aa:bb:cc:dd:ee:ff
 [bluetooth]# pairable on
 [bluetooth]# scan on
 Discovery started
@@ -269,7 +270,7 @@ See instructions above (method 1) for initial pairing.
 #### 5.3.1 Connecting rdv4.0 with Bluetooth on MacOS
 ^[Top](#top)
 
-With MacOS Mojave 10.14.5 you could experience some continuosly disconnecting and difficult to recconnect the device at the system wakeup, to avoid this problem do a PRAM reset before to add your Proxmark3 RDV4 Blue Shark:
+With MacOS Mojave 10.14.5 you could experience some continuously disconnecting and difficult to reconnect the device at the system wakeup, to avoid this problem do a PRAM reset before to add your Proxmark3 RDV4 Blue Shark:
 
   1. Open a Terminal and execute this command: sudo rm -R /Library/Preferences/com.apple.Bluetooth.plist.
   2. Shut down your Mac.

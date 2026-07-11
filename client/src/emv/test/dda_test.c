@@ -1,33 +1,37 @@
-/*
- * emv-tools - a set of tools to work with EMV family of smart cards
- * Copyright (C) 2012, 2015 Dmitry Eremin-Solenikov
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- */
+//-----------------------------------------------------------------------------
+// Borrowed initially from https://github.com/lumag/emv-tools/
+// Copyright (C) 2012, 2015 Dmitry Eremin-Solenikov
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
+//-----------------------------------------------------------------------------
+// emv-tools - a set of tools to work with EMV family of smart cards
+//-----------------------------------------------------------------------------
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
 
 #include <string.h>     // memcpy
-#include <stdlib.h>     // malloc
+#include <stdlib.h>     // calloc
 
 #include "dda_test.h"
 #include "../emv_pk.h"
 #include "../crypto.h"
-#include "../dump.h"
 #include "../tlv.h"
 #include "../emv_pki.h"
 #include "ui.h"         // printandlog
-
+#include "util.h"       // print_buffer
 
 struct emv_pk mchip_05 = {
     .rid = { 0xa0, 0x00, 0x00, 0x00, 0x04, },
@@ -161,11 +165,11 @@ static int dda_test_raw(bool verbose) {
 
     if (verbose) {
         PrintAndLogEx(INFO, "issuer cert:");
-        dump_buffer(ipk_data, ipk_data_len, stdout, 0);
+        print_buffer(ipk_data, ipk_data_len, 1);
     }
 
     size_t ipk_pk_len = ipk_data[13];
-    unsigned char *ipk_pk = malloc(ipk_pk_len);
+    unsigned char *ipk_pk = calloc(1, ipk_pk_len);
     memcpy(ipk_pk, ipk_data + 15, ipk_data_len - 36);
     memcpy(ipk_pk + ipk_data_len - 36, d_issuer_rem, sizeof(d_issuer_rem));
 
@@ -191,7 +195,7 @@ static int dda_test_raw(bool verbose) {
 
     if (verbose) {
         PrintAndLogEx(INFO, "crypto hash:");
-        dump_buffer(h, 20, stdout, 0);
+        print_buffer(h, 20, 1);
     }
 
     if (memcmp(ipk_data + ipk_data_len - 21, h, 20)) {
@@ -220,11 +224,11 @@ static int dda_test_raw(bool verbose) {
 
     if (verbose) {
         PrintAndLogEx(INFO, "icc cert:");
-        dump_buffer(iccpk_data, iccpk_data_len, stdout, 0);
+        print_buffer(iccpk_data, iccpk_data_len, 1);
     }
 
     size_t iccpk_pk_len = iccpk_data[19];
-    unsigned char *iccpk_pk = malloc(iccpk_pk_len);
+    unsigned char *iccpk_pk = calloc(1, iccpk_pk_len);
     memcpy(iccpk_pk, iccpk_data + 21, /*iccpk_data_len - 36*/iccpk_pk_len);
     /*memcpy(iccpk_pk + iccpk_data_len - 36, icc_rem, sizeof(icc_rem));*/
 
@@ -249,7 +253,7 @@ static int dda_test_raw(bool verbose) {
 
     if (verbose) {
         PrintAndLogEx(INFO, "crypto hash1.1:");
-        dump_buffer(h, 20, stdout, 0);
+        print_buffer(h, 20, 1);
     }
 
     if (memcmp(iccpk_data + iccpk_data_len - 21, h, 20)) {
@@ -276,7 +280,7 @@ static int dda_test_raw(bool verbose) {
 
     if (verbose) {
         PrintAndLogEx(INFO, "sdad:");
-        dump_buffer(sdad, sdad_len, stdout, 0);
+        print_buffer(sdad, sdad_len, 1);
     }
 
     ch = crypto_hash_open(HASH_SHA_1);
@@ -297,7 +301,7 @@ static int dda_test_raw(bool verbose) {
 
     if (verbose) {
         PrintAndLogEx(INFO, "crypto hash2:");
-        dump_buffer(h2, 20, stdout, 0);
+        print_buffer(h2, 20, 1);
     }
 
     crypto_hash_close(ch);
@@ -356,7 +360,7 @@ static int dda_test_pk(bool verbose) {
 
     if (verbose) {
         PrintAndLogEx(INFO, "IDN:");
-        dump_buffer(idn->value, idn->len, stdout, 0);
+        print_buffer(idn->value, idn->len, 1);
     }
 
     tlvdb_free(idndb);
@@ -369,16 +373,16 @@ static int dda_test_pk(bool verbose) {
 int exec_dda_test(bool verbose) {
     int ret = dda_test_raw(verbose);
     if (ret) {
-        PrintAndLogEx(WARNING, "DDA raw test: %s", _RED_("failed"));
+        PrintAndLogEx(WARNING, "DDA raw test ( %s )", _RED_("fail"));
         return ret;
     }
-    PrintAndLogEx(SUCCESS, "DDA raw test: %s", _GREEN_("passed"));
+    PrintAndLogEx(SUCCESS, "DDA raw test ( %s )", _GREEN_("ok"));
 
     ret = dda_test_pk(verbose);
     if (ret) {
-        PrintAndLogEx(WARNING, "DDA test pk: %s", _RED_("failed"));
+        PrintAndLogEx(WARNING, "DDA test pk ( %s )", _RED_("fail"));
         return ret;
     }
-    PrintAndLogEx(SUCCESS, "DDA test pk: %s", _GREEN_("passed"));
+    PrintAndLogEx(SUCCESS, "DDA test pk ( %s )", _GREEN_("ok"));
     return 0;
 }

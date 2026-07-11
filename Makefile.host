@@ -1,3 +1,18 @@
+#-----------------------------------------------------------------------------
+# Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# See LICENSE.txt for the text of the license.
+#-----------------------------------------------------------------------------
 # This Makefile might have been called from various subdirs, trying to find our Makefile.defs
 ifeq ($(DEFSBEENHERE),)
     -include Makefile.defs
@@ -17,6 +32,9 @@ endif
 
 CFLAGS ?= $(DEFCFLAGS)
 CFLAGS += $(MYDEFS) $(MYCFLAGS) $(MYINCLUDES)
+CXXFLAGS ?= $(DEFCXXFLAGS)
+CXXFLAGS += $(MYDEFS) $(MYCXXFLAGS) $(MYINCLUDES)
+LDFLAGS ?= $(DEFLDFLAGS)
 LDFLAGS += $(MYLDFLAGS)
 LDLIBS += $(MYLDLIBS)
 
@@ -31,6 +49,7 @@ BINDIR := .
 OBJDIR := obj
 
 MYOBJS ?= $(MYSRCS:%.c=$(OBJDIR)/%.o)
+MYCXXOBJS ?= $(MYCXXSRCS:%.cpp=$(OBJDIR)/%.o)
 CLEAN = $(foreach bin,$(MYLIBS) $(BINS) $(LIB_A),$(BINDIR)/$(bin))
 
 all: $(foreach bin,$(MYLIBS) $(BINS) $(LIB_A),$(BINDIR)/$(bin))
@@ -47,38 +66,45 @@ endif
 install: all
 ifneq (,$(INSTALLTOOLS))
 	    $(info [@] Installing $(BINS) to $(DESTDIR)$(PREFIX)...)
-	    $(Q)$(MKDIR) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLTOOLSRELPATH)
-	    $(Q)$(CP) $(INSTALLTOOLS) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLTOOLSRELPATH)
+	    $(Q)$(INSTALLSUDO) $(MKDIR) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLTOOLSRELPATH)
+	    $(Q)$(INSTALLSUDO) $(CP) $(INSTALLTOOLS) $(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLTOOLSRELPATH)
 endif
 	@true
 
 uninstall:
 ifneq (,$(INSTALLTOOLS))
 	    $(info [@] Uninstalling $(BINS) from $(DESTDIR)$(PREFIX)...)
-	    $(Q)$(RM) $(foreach tool,$(INSTALLTOOLS),$(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLTOOLSRELPATH)$(PATHSEP)$(notdir $(tool)))
+	    $(Q)$(INSTALLSUDO) $(RM) $(foreach tool,$(INSTALLTOOLS),$(DESTDIR)$(PREFIX)$(PATHSEP)$(INSTALLTOOLSRELPATH)$(PATHSEP)$(notdir $(tool)))
 endif
 	@true
 
 .PHONY: all clean install uninstall
 
-$(BINDIR)/$(LIB_A): $(MYOBJS)
+$(BINDIR)/$(LIB_A): $(MYOBJS) $(MYCXXOBJS)
 	$(info [=] AR $(notdir $@))
-	$(Q)$(AR) $@ $(MYOBJS)
+	$(Q)$(AR) $@ $(MYOBJS) $(MYCXXOBJS)
 	$(Q)$(RANLIB) $@
 
-$(BINDIR)/% : $(OBJDIR)/%.o $(MYOBJS) $(MYLIBS)
-	$(info [=] LD $(notdir $@))
-	$(Q)$(LD) $(LDFLAGS) $(MYOBJS) $< -o $@ $(MYLIBS) $(MYLDLIBS)
+$(BINDIR)/% : $(OBJDIR)/%.o $(MYOBJS) $(MYCXXOBJS) $(MYLIBS)
+	$(info [=] CXX $(notdir $@))
+	$(Q)$(CXX) $(LDFLAGS) $(MYOBJS) $(MYCXXOBJS) $< -o $@ $(MYLIBS) $(MYLDLIBS)
 
-$(OBJDIR)/%.o : %.c | $(OBJDIR)
+%.o: %.c
+$(OBJDIR)/%.o : %.c $(OBJDIR)/%.d | $(OBJDIR)
 	$(info [-] CC $<)
 	$(Q)$(CC) $(DEPFLAGS) $(CFLAGS) -c -o $@ $<
+	$(Q)$(POSTCOMPILE)
+
+%.o: %.cpp
+$(OBJDIR)/%.o : %.cpp $(OBJDIR)/%.d | $(OBJDIR)
+	$(info [-] CXX $<)
+	$(Q)$(CXX) $(DEPFLAGS) $(CXXFLAGS) -c -o $@ $<
 	$(Q)$(POSTCOMPILE)
 
 $(OBJDIR):
 	$(Q)$(MKDIR) $(OBJDIR)
 
-DEPENDENCY_FILES = $(MYOBJS:%.o=%.d) $(BINS:%=$(OBJDIR)/%.d)
+DEPENDENCY_FILES = $(MYOBJS:%.o=%.d) $(MYCXXOBJS:%.o=%.d) $(BINS:%=$(OBJDIR)/%.d)
 
 $(DEPENDENCY_FILES): ;
 .PRECIOUS: $(DEPENDENCY_FILES)

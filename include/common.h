@@ -1,10 +1,17 @@
 //-----------------------------------------------------------------------------
-// Hagen Fritsch - June 2010
+// Copyright (C) Proxmark3 contributors. See AUTHORS.md for details.
 //
-// This code is licensed to you under the terms of the GNU GPL, version 2 or,
-// at your option, any later version. See the LICENSE.txt file for the text of
-// the license.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// See LICENSE.txt for the text of the license.
 //-----------------------------------------------------------------------------
 // Interlib Definitions
 //-----------------------------------------------------------------------------
@@ -16,7 +23,14 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+#ifdef _WIN32
+#define ABOVE "../"
 #define PATHSEP "/"
+#else
+#define ABOVE "../"
+#define PATHSEP "/"
+#endif
+
 // PM3 share path relative to executable when installed
 #define PM3_SHARE_RELPATH    ".." PATHSEP "share" PATHSEP "proxmark3" PATHSEP
 
@@ -39,13 +53,14 @@
 #define PACKED __attribute__((packed))
 
 #define VERSION_INFORMATION_MAGIC 0x56334d50 // "PM3V"
-struct version_information {
+struct version_information_t {
     int magic; /* Magic sequence to identify this as a correct version information structure. Must be VERSION_INFORMATION_MAGIC */
     char versionversion; /* Must be 1 */
     char present; /* 1 if the version information could be created at compile time, otherwise 0 and the remaining fields (except for magic) are empty */
     char clean; /* 1: Tree was clean, no local changes. 0: Tree was unclean. 2: Couldn't be determined */
     char gitversion[50]; /* String with the git revision */
     char buildtime[30]; /* string with the build time */
+    char armsrc[10]; /* sha256sum of sha256sum of armsrc && common_arm files */
 } PACKED;
 
 // debug
@@ -54,7 +69,11 @@ struct version_information {
 #define DBG_INFO          2 // errors + info messages
 #define DBG_DEBUG         3 // errors + info + debug messages
 #define DBG_EXTENDED      4 // errors + info + debug + breaking debug messages
-extern int DBGLEVEL;
+extern int g_dbglevel;
+
+// tear-off
+extern uint16_t g_tearoff_delay_us;
+extern bool g_tearoff_enabled;
 
 // reader voltage field detector
 #define MF_MINFIELDV      4000
@@ -108,6 +127,17 @@ extern int DBGLEVEL;
 #endif
 #endif
 
+// endian change for 48bit
+#ifndef BSWAP_48
+#define BSWAP_48(x) \
+     (((uint64_t)(x) << 40) & 0x0000ff0000000000ULL) | \
+     (((uint64_t)(x) << 24) & 0x000000ff00000000ULL) | \
+     (((uint64_t)(x) << 8)  & 0x00000000ff000000ULL) | \
+     (((uint64_t)(x) >> 8)  & 0x000000000ff0000ULL) | \
+     (((uint64_t)(x) >> 24) & 0x00000000000ff00ULL) | \
+     (((uint64_t)(x) >> 40) & 0x0000000000000ffULL)
+#endif
+
 // endian change for 32bit
 #ifdef __GNUC__
 #ifndef BSWAP_32
@@ -127,20 +157,35 @@ extern int DBGLEVEL;
 #endif
 #endif
 
+// convert 2 bytes to U16 in little endian
+#ifndef BYTES2UINT16
+# define BYTES2UINT16(x) (((x)[1] << 8) | ((x)[0]))
+#endif
+// convert 4 bytes to U32 in little endian
+#ifndef BYTES2UINT32
+# define BYTES2UINT32(x) (((x)[3] << 24) | ((x)[2] << 16) | ((x)[1] << 8) | ((x)[0]))
+#endif
+
+// convert 4 bytes to U32 in big endian
+#ifndef BYTES2UINT32_BE
+# define BYTES2UINT32_BE(x) (((x)[0] << 24) | ((x)[1] << 16) | ((x)[2] << 8) | ((x)[3]))
+#endif
+
+
 #define EVEN                        0
 #define ODD                         1
 
 // Nibble logic
 #ifndef NIBBLE_HIGH
-# define NIBBLE_HIGH(b) ( (b & 0xF0) >> 4 )
+# define NIBBLE_HIGH(b) ( ((b) & 0xF0) >> 4 )
 #endif
 
 #ifndef NIBBLE_LOW
-# define NIBBLE_LOW(b)  ( b & 0x0F )
+# define NIBBLE_LOW(b)  ((b) & 0x0F )
 #endif
 
 #ifndef CRUMB
-# define CRUMB(b,p)    (((b & (0x3 << p) ) >> p ) & 0xF)
+# define CRUMB(b,p)    ((((b) & (0x3 << (p)) ) >> (p) ) & 0xF)
 #endif
 
 #ifndef SWAP_NIBBLE
@@ -149,17 +194,34 @@ extern int DBGLEVEL;
 
 // Binary Encoded Digit
 #ifndef BCD2DEC
-# define BCD2DEC(bcd) HornerScheme(bcd, 0x10, 10)
+# define BCD2DEC(bcd) HornerScheme((bcd), 0x10, 10)
 #endif
 
 #ifndef DEC2BCD
-# define DEC2BCD(dec) HornerScheme(dec, 10, 0x10)
+# define DEC2BCD(dec) HornerScheme((dec), 10, 0x10)
 #endif
 
 // bit stream operations
-#define TEST_BIT(data, i) (*(data + (i / 8)) >> (7 - (i % 8))) & 1
-#define SET_BIT(data, i)   *(data + (i / 8)) |= (1 << (7 - (i % 8)))
-#define CLEAR_BIT(data, i) *(data + (i / 8)) &= ~(1 << (7 - (i % 8)))
-#define FLIP_BIT(data, i)  *(data + (i / 8)) ^= (1 << (7 - (i % 8)))
+#define TEST_BIT(data, i) (*((data) + ((i) / 8)) >> (7 - ((i) % 8))) & 1
+#define SET_BIT(data, i)   *((data) + ((i) / 8)) |= (1 << (7 - ((i) % 8)))
+#define CLEAR_BIT(data, i) *((data) + ((i) / 8)) &= ~(1 << (7 - ((i) % 8)))
+#define FLIP_BIT(data, i)  *((data) + ((i) / 8)) ^= (1 << (7 - ((i) % 8)))
+
+// time for decompressing and loading the image to the FPGA
+#define FPGA_LOAD_WAIT_TIME (1500)
+
+// GCC extension
+// from client/deps/tinycbor/compilersupport_p.h
+#ifdef __GNUC__
+#ifndef likely
+#  define likely(x)     __builtin_expect(!!(x), 1)
+#endif
+#ifndef unlikely
+#  define unlikely(x)   __builtin_expect(!!(x), 0)
+#endif
+#else
+#  define likely(x)     (x)
+#  define unlikely(x)   (x)
+#endif
 
 #endif
