@@ -20,11 +20,9 @@
 //
 //
 //          To recall stored ID from flash execute:
-//              mem spiffs dump o emdump p
-//          Or:
-//              mem spiffs dump o emdump f emdump
+//              mem spiffs dump -s emdump -d emdump
 //              Then from shell:
-//                  hexdump emdump -e '5/1 "%02X" /0 "\n"'
+//                  hexdump emdump.bin -e '5/1 "%02X" /0 "\n"'
 //-----------------------------------------------------------------------------
 #include "standalone.h"
 #include "proxmark3_arm.h"
@@ -171,7 +169,7 @@ void RunMod(void) {
             case 0:
                 // Read mode
                 //is_reading = true;
-                lf_em410x_watch(1, &high, &low);
+                lf_em410x_watch(1, &high, &low, true);
                 Dbprintf("[=] read stopped. state --> %i, low --> %02x%08x", state, (uint32_t)(low>>32), (uint32_t)low);
                 
 #ifdef WITH_FLASH
@@ -210,7 +208,7 @@ void RunMod(void) {
                 // Write mode
                 if (button_pressed == BUTTON_HOLD) {
                     //copy to t55x7
-                    copy_em410x_to_t55xx(1, CLOCK, (uint32_t)(low >> 32), (uint32_t)(low & 0xffffffff));
+                    copy_em410x_to_t55xx(1, CLOCK, (uint32_t)(low >> 32), (uint32_t)(low & 0xffffffff), false, true);
 
                     //leds are turned off by copy_em410x_to_t55xx command
                     led_state(state);
